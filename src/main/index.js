@@ -113,13 +113,63 @@ function stream(cmd, args, cwd, onLine, env) {
   });
 }
 
+function exec(cmd, args) {
+  return new Promise((resolve) => {
+    const p = spawn(cmd, args, { shell: isWin });
+    let out = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (out += d));
+    p.on("close", (code) => resolve({ code, out: out.trim() }));
+    p.on("error", () => resolve({ code: 1, out: "" }));
+  });
+}
+
+async function detectPython() {
+  for (const cmd of ["python", "python3", "py"]) {
+    const r = await exec(cmd, ["--version"]);
+    const m = r.out.match(/Python\s+([\d.]+)/i);
+    if (r.code === 0 && m) {
+      const pip = (await exec(cmd, ["-m", "pip", "--version"])).code === 0;
+      return { ok: true, cmd, version: m[1], pip };
+    }
+  }
+  return { ok: false };
+}
+
+function requirementsFile() {
+  return [
+    path.join(__dirname, "../../resources/requirements.txt"),
+    path.join(process.resourcesPath || "", "requirements.txt"),
+  ].find((p) => fs.existsSync(p));
+}
+function requiredPyPkgs() {
+  const f = requirementsFile();
+  if (!f) return [];
+  return fs.readFileSync(f, "utf-8").split("\n").map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#")).map((l) => l.split(/[=<>~!\s]/)[0].trim().toLowerCase());
+}
+async function pythonDeps(py) {
+  const required = requiredPyPkgs();
+  if (!required.length) return { required: [], missing: [] };
+  if (!py?.ok) return { required, missing: required };
+  const freeze = (await exec(py.cmd, ["-m", "pip", "freeze"])).out.toLowerCase();
+  const installed = new Set(freeze.split("\n").map((l) => l.split(/[=<>~!]/)[0].trim()));
+  return { required, missing: required.filter((r) => !installed.has(r)) };
+}
+
 // ---------- setup IPC ----------
-ipcMain.handle("setup:check", () => ({
-  node: process.versions.node,
-  electron: process.versions.electron,
-  deps: depsInstalled(),
-  browser: fs.existsSync(CAMOUFOX_EXE),
-}));
+ipcMain.handle("setup:check", async () => {
+  const python = await detectPython();
+  const pydeps = await pythonDeps(python);
+  return {
+    node: process.versions.node,
+    electron: process.versions.electron,
+    deps: depsInstalled(),
+    browser: fs.existsSync(CAMOUFOX_EXE),
+    python,
+    pydeps,
+  };
+});
 
 ipcMain.handle("setup:install", async (evt) => {
   const send = (line, level = "info") => evt.sender.send("setup:log", { line, level });
@@ -145,6 +195,23 @@ ipcMain.handle("setup:install", async (evt) => {
     send("Browser Camoufox siap", "ok");
   } else {
     send("Browser Camoufox sudah ada", "ok");
+  }
+
+  // Python packages (opsional — hanya kalau Python ada & ada requirements.txt)
+  const py = await detectPython();
+  const reqFile = requirementsFile();
+  if (py.ok && reqFile) {
+    const { missing } = await pythonDeps(py);
+    if (missing.length) {
+      send(`Menginstall Python packages (${missing.length}) ...`, "step");
+      const code = await stream(py.cmd, ["-m", "pip", "install", "-r", reqFile], path.dirname(reqFile), (l) => send(l));
+      if (code !== 0) send("Sebagian Python package gagal (bisa dilanjut)", "warn");
+      else send("Python packages terpasang", "ok");
+    } else {
+      send("Python packages sudah lengkap", "ok");
+    }
+  } else if (!py.ok && reqFile) {
+    send("Python belum terpasang — lewati Python packages", "warn");
   }
 
   send("Semua kebutuhan terpenuhi 🎉", "ok");

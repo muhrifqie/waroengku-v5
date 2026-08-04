@@ -1,0 +1,5 @@
+# Python packages untuk tools berbasis Python (diinstall otomatis saat Setup
+# bila Python terpasang). Tambahkan paket di bawah, satu per baris.
+# contoh:
+# requests
+# playwright
