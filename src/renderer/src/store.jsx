@@ -117,6 +117,12 @@ export function AppProvider({ children }) {
     setRunning(false);
   }
   const compactDb = () => window.api.compactDb();
+  const exportDb = () => window.api.exportDb();
+  async function importDb() {
+    const r = await window.api.importDb();
+    if (r?.ok) { await refresh(); setFolders(await window.api.listFolders()); }
+    return r;
+  }
 
   async function loadDomains() {
     const r = await window.api.loadDomains(otpArgs());
@@ -171,7 +177,7 @@ export function AppProvider({ children }) {
     rows, refresh, logs, clearLogs: () => setLogs([]),
     running, progress, termSignal, focusTerminal, domains, browserReady, litensiStatus, sys, reloadIp,
     folders, createFolder, updateFolder, deleteFolder,
-    startBot, startOutlook, stopBot, compactDb, loadDomains, validate, captchaBalance, checkProvider, checkAdspower, checkDomain, restore, del, importLegacy,
+    startBot, startOutlook, stopBot, compactDb, exportDb, importDb, loadDomains, validate, captchaBalance, checkProvider, checkAdspower, checkDomain, restore, del, importLegacy,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

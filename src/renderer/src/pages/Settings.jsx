@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Settings as SettingsIcon, Sun, Moon, Database, Upload, Info, Loader2, RefreshCw, DownloadCloud } from "lucide-react";
+import { Settings as SettingsIcon, Sun, Moon, Database, Upload, Download, Info, Loader2, RefreshCw, DownloadCloud } from "lucide-react";
 import { useApp } from "../store.jsx";
 import { Button, Input, Field, Panel, Page, PageHeader } from "../components/ui.jsx";
 
 export default function Settings() {
-  const { rows, importLegacy, compactDb, cfg, setField } = useApp();
+  const { rows, importLegacy, compactDb, exportDb, importDb, cfg, setField } = useApp();
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const [compacting, setCompacting] = useState(false);
   const [compactMsg, setCompactMsg] = useState("");
@@ -32,6 +32,17 @@ export default function Settings() {
     const mb = (n) => (n / 1048576).toFixed(1);
     setCompactMsg(`${mb(r.before)} MB → ${mb(r.after)} MB (${r.trimmed} sesi dipangkas)`);
     setCompacting(false);
+  }
+  const [dataMsg, setDataMsg] = useState("");
+  async function onExport() {
+    const r = await exportDb();
+    if (r?.ok) setDataMsg(`Ter-export: ${r.path.split(/[\\/]/).pop()} (${(r.size / 1048576).toFixed(1)} MB)`);
+  }
+  async function onImport() {
+    if (!confirm("Restore akan MENGGANTI database saat ini dengan file backup. Lanjut?")) return;
+    const r = await importDb();
+    if (r?.ok) setDataMsg(`Restore berhasil — ${r.accounts} akun dimuat`);
+    else if (r?.error) setDataMsg("Gagal: " + r.error);
   }
 
   const seg = (on) => "flex items-center gap-1.5 rounded-[7px] px-3 py-1.5 text-[13px] transition " + (on ? "bg-primary text-primary-fg" : "text-muted-fg hover:text-fg");
@@ -70,24 +81,31 @@ export default function Settings() {
         </Panel>
 
         <Panel title="Data">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-info/10 text-info"><Database size={18} /></div>
-              <div>
-                <div className="text-[13px] font-medium">Database</div>
-                <div className="text-[12px] text-muted-fg">{rows.length} akun · SQLite (folder userData)</div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-info/10 text-info"><Database size={18} /></div>
+              <div className="min-w-0">
+                <div className="text-[13px] font-medium">Database — {rows.length} akun</div>
+                <div className="truncate text-[12px] text-muted-fg">
+                  Tersimpan aman di komputermu (folder aplikasi) & tetap ada setelah update.
+                  <button className="ml-1 text-primary hover:underline" onClick={() => window.api.openDbFolder()}>buka folder</button>
+                </div>
               </div>
             </div>
-            <Button onClick={importLegacy}><Upload size={16} /> Impor DB lama</Button>
           </div>
-          <div className="mt-3 flex items-center justify-between border-t border-border-subtle pt-3">
-            <div className="text-[12px] text-muted-fg">
-              Kompres database — pangkas cookies lama & VACUUM.{compactMsg && <span className="ml-1 text-fg">{compactMsg}</span>}
-            </div>
+
+          {dataMsg && <div className="mt-2.5 rounded-[8px] bg-secondary/60 px-3 py-1.5 text-[12px] text-fg">{dataMsg}</div>}
+
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border-subtle pt-3">
+            <Button variant="primary" onClick={onExport}><Download size={16} /> Export / Backup</Button>
+            <Button onClick={onImport}><Upload size={16} /> Restore dari file</Button>
+            <Button onClick={importLegacy}><Upload size={16} /> Impor DB lama</Button>
+            <div className="flex-1" />
             <Button onClick={onCompact} disabled={compacting}>
-              {compacting ? <Loader2 size={16} className="animate-spin" /> : <Database size={16} />} Compact DB
+              {compacting ? <Loader2 size={16} className="animate-spin" /> : <Database size={16} />} Compact
             </Button>
           </div>
+          {compactMsg && <div className="mt-2 text-[11px] text-muted-fg">{compactMsg}</div>}
         </Panel>
 
         <Panel title="Aplikasi">

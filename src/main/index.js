@@ -172,6 +172,28 @@ ipcMain.handle("db:importLegacy", async () => {
   }
 });
 ipcMain.handle("db:compact", () => store.compactDb());
+ipcMain.handle("db:export", async () => {
+  const d = new Date();
+  const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  const res = await dialog.showSaveDialog(win, {
+    title: "Export database",
+    defaultPath: `waroengku-backup-${stamp}.db`,
+    filters: [{ name: "SQLite DB", extensions: ["db"] }],
+  });
+  if (res.canceled || !res.filePath) return { ok: false };
+  try { return store.exportTo(res.filePath); }
+  catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle("db:import", async () => {
+  const res = await dialog.showOpenDialog(win, {
+    title: "Pilih file backup",
+    filters: [{ name: "SQLite DB", extensions: ["db", "sqlite", "sqlite3"] }],
+    properties: ["openFile"],
+  });
+  if (res.canceled || !res.filePaths[0]) return { ok: false };
+  return store.importFrom(res.filePaths[0]);
+});
+ipcMain.on("db:open-folder", () => shell.showItemInFolder(store.dbPath()));
 ipcMain.handle("proxy:list", () => store.listProxies());
 ipcMain.handle("proxy:delete", (_e, ids) => (store.deleteProxies(ids), store.listProxies()));
 ipcMain.handle("proxy:detect", async (_e, lines) => {

@@ -150,6 +150,40 @@ export function importLegacy(legacyFile) {
   return listAccounts().length - before;
 }
 
+// ---------- backup / restore ----------
+export function dbPath() { return file; }
+
+export function exportTo(dest) {
+  flushDb();
+  fs.copyFileSync(file, dest);
+  return { ok: true, path: dest, size: fs.statSync(dest).size };
+}
+
+export function importFrom(src) {
+  const bytes = fs.readFileSync(src);
+  let test;
+  try {
+    test = new SQLjs.Database(bytes);
+    const r = test.exec("SELECT COUNT(*) c FROM accounts");
+    const accounts = r[0]?.values?.[0]?.[0] ?? 0;
+    test.close();
+    if (db && db.close) db.close();
+    db = new SQLjs.Database(bytes);
+    db.run(`
+      CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, product TEXT DEFAULT 'capcut', email TEXT UNIQUE, password TEXT, prices TEXT, cookies_json TEXT, created_at TEXT DEFAULT (datetime('now')));
+      CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS folders (key TEXT PRIMARY KEY, name TEXT, icon TEXT, created_at TEXT DEFAULT (datetime('now')));
+      CREATE TABLE IF NOT EXISTS proxies (id INTEGER PRIMARY KEY AUTOINCREMENT, raw TEXT, scheme TEXT, host TEXT, port INTEGER, username TEXT, password TEXT, ip TEXT, country TEXT, isp TEXT, latency INTEGER, ok INTEGER, created_at TEXT DEFAULT (datetime('now')), UNIQUE(host, port));
+    `);
+    dirty = true;
+    flushDb();
+    return { ok: true, accounts };
+  } catch (e) {
+    try { test?.close(); } catch {}
+    return { ok: false, error: "File bukan database yang valid: " + e.message };
+  }
+}
+
 // ---------- maintenance ----------
 export function compactDb() {
   const before = fs.existsSync(file) ? fs.statSync(file).size : 0;
