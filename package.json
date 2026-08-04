@@ -4,7 +4,7 @@
   "description": "Waroengku V5 — automation suite (Camoufox) by Muh Rifq",
   "main": "./out/main/index.js",
   "author": "waroeng",
-  "repository": { "type": "git", "url": "https://github.com/OWNER/waroengku-v5.git" },
+  "repository": { "type": "git", "url": "https://github.com/muhrifqie/waroengku-v5.git" },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
