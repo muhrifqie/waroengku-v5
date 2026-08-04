@@ -1,0 +1,177 @@
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+
+/* ===================== Fonts (Anthropic) ===================== */
+@font-face {
+  font-family: "Anthropic Sans";
+  src: url("./assets/fonts/AnthropicSans-Text-Regular-Static.otf") format("opentype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Anthropic Sans";
+  src: url("./assets/fonts/AnthropicSans-Text-Medium-Static.otf") format("opentype");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Anthropic Sans";
+  src: url("./assets/fonts/AnthropicSans-Text-Semibold-Static.otf") format("opentype");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Anthropic Sans";
+  src: url("./assets/fonts/AnthropicSans-Text-Bold-Static.otf") format("opentype");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Anthropic Serif";
+  src: url("./assets/fonts/AnthropicSerif-Display-Semibold-Static.otf") format("opentype");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Anthropic Serif";
+  src: url("./assets/fonts/AnthropicSerif-Display-Bold-Static.otf") format("opentype");
+  font-weight: 700;
+  font-display: swap;
+}
+
+/* ===================== Theme tokens (Tailwind v4) ===================== */
+@theme {
+  --font-sans: "Anthropic Sans", system-ui, sans-serif;
+  --font-serif: "Anthropic Serif", Georgia, serif;
+
+  --color-bg: var(--background);
+  --color-fg: var(--foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-muted: var(--muted);
+  --color-muted-fg: var(--muted-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+
+  --radius-brand: 10px;
+  --radius-brand-lg: 14px;
+  --shadow-warm: 0 2px 12px -2px #d977572e;
+  --shadow-elevated: 0 12px 28px -4px #3c322d14;
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ===================== Palette (dari globals.css) ===================== */
+:root {
+  --background: #faf9f5;
+  --foreground: #3d3929;
+  --card: #ffffff;
+  --primary: #d97757;
+  --primary-hover: #bf6244;
+  --primary-foreground: #ffffff;
+  --secondary: #f0eee6;
+  --muted: #f0eee6;
+  --muted-foreground: #73705c;
+  --border: #e0ddd1;
+  --border-subtle: #eceadf;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #bf4b3c;
+  --info: #3b82f6;
+  --titlebar: #f4f2ec;
+}
+.dark {
+  --background: #1f1f1e;
+  --foreground: #e8e6dc;
+  --card: #2c2c2a;
+  --primary: #d97757;
+  --primary-hover: #cf6a4c;
+  --primary-foreground: #ffffff;
+  --secondary: #383836;
+  --muted: #383836;
+  --muted-foreground: #a8a499;
+  --border: #41413e;
+  --border-subtle: #363634;
+  --success: #22c55e;
+  --warning: #fbbf24;
+  --danger: #e3796a;
+  --info: #60a5fa;
+  --titlebar: #191918;
+}
+
+/* ===================== Utilities & base ===================== */
+@utility drag {
+  -webkit-app-region: drag;
+}
+@utility no-drag {
+  -webkit-app-region: no-drag;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg text-fg font-sans text-sm antialiased;
+    overflow: hidden;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-serif;
+    letter-spacing: -0.01em;
+  }
+  input:focus {
+    outline: none;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* console log colours */
+.l-step {
+  color: #9db9ff;
+}
+.l-ok {
+  color: #7fd88f;
+}
+.l-warn {
+  color: #f3a17a;
+}
+
+/* scrollbar */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--muted-foreground) 30%, transparent);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--muted-foreground) 50%, transparent);
+}
