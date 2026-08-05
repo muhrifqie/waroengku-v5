@@ -1,6 +1,6 @@
 {
   "name": "waroengku-v5",
-  "version": "5.0.1",
+  "version": "5.0.2",
   "description": "Waroengku V5 — automation suite desktop untuk pembuatan & manajemen akun massal (CapCut, Outlook) dengan browser anti-deteksi, manajemen proxy, dan integrasi OTP/Captcha. Electron + Vite + React.",
   "main": "./out/main/index.js",
   "author": "waroeng",
