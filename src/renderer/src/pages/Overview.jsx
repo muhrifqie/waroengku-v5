@@ -22,7 +22,7 @@ function Info({ icon: Icon, label, value, action }) {
 }
 
 const TOOLS = [
-  { id: "capcut", name: "CapCut Creator", desc: "Daftar akun CapCut otomatis + restore sesi", icon: Video, page: "generator" },
+  { id: "capcut", name: "CapCut Creator", desc: "Daftar akun CapCut otomatis + restore sesi", icon: Video, page: "capcut-creator" },
   { id: "outlook", name: "Outlook Creator", desc: "Buat akun Outlook via profil AdsPower", icon: Mail, page: "outlook" },
   { id: "hma", name: "HMA Creator", desc: "Segera hadir", icon: ShieldOff, soon: true },
 ];
@@ -42,7 +42,7 @@ export default function Overview({ setPage }) {
   const date = now.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   async function onReloadIp() { setReloading(true); await reloadIp(); setReloading(false); }
-  function useRecommended() { if (sys?.recommended) { setField("concurrent", String(sys.recommended)); setPage("generator"); } }
+  function useRecommended() { if (sys?.recommended) { setField("concurrent", String(sys.recommended)); setPage("capcut-creator"); } }
 
   const ipReload = (
     <button onClick={onReloadIp} title="Muat ulang IP" className="text-muted-fg hover:text-primary">

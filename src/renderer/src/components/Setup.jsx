@@ -17,8 +17,9 @@ export default function Setup({ onDone }) {
   const consoleRef = useRef(null);
 
   useEffect(() => {
-    window.api.onSetupLog((p) => setLogs((l) => [...l, p]));
+    const off = window.api.onSetupLog((p) => setLogs((l) => [...l, p]));
     check();
+    return off;
   }, []);
   useEffect(() => {
     if (consoleRef.current) consoleRef.current.scrollTop = consoleRef.current.scrollHeight;

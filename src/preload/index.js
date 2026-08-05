@@ -1,21 +1,28 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+// Daftarkan listener & kembalikan fungsi unsubscribe (cegah listener dobel di StrictMode).
+const on = (channel, cb) => {
+  const h = (_e, ...a) => cb(...a);
+  ipcRenderer.on(channel, h);
+  return () => ipcRenderer.removeListener(channel, h);
+};
+
 contextBridge.exposeInMainWorld("api", {
   minimize: () => ipcRenderer.send("win:minimize"),
   maximize: () => ipcRenderer.send("win:maximize"),
   close: () => ipcRenderer.send("win:close"),
-  onWinState: (cb) => ipcRenderer.on("win:state", (_e, max) => cb(max)),
+  onWinState: (cb) => on("win:state", cb),
 
   checkSetup: () => ipcRenderer.invoke("setup:check"),
   installSetup: () => ipcRenderer.invoke("setup:install"),
-  onSetupLog: (cb) => ipcRenderer.on("setup:log", (_e, p) => cb(p)),
+  onSetupLog: (cb) => on("setup:log", cb),
 
   openExternal: (url) => ipcRenderer.send("open-external", url),
   getVersion: () => ipcRenderer.invoke("app:version"),
   checkUpdate: () => ipcRenderer.invoke("update:check"),
   downloadUpdate: () => ipcRenderer.invoke("update:download"),
   installUpdate: () => ipcRenderer.invoke("update:install"),
-  onUpdateStatus: (cb) => ipcRenderer.on("update:status", (_e, p) => cb(p)),
+  onUpdateStatus: (cb) => on("update:status", cb),
 
   // database
   listAccounts: () => ipcRenderer.invoke("db:list"),
@@ -47,7 +54,7 @@ contextBridge.exposeInMainWorld("api", {
   adspowerStatus: (args) => ipcRenderer.invoke("adspower:status", args),
   systemInfo: () => ipcRenderer.invoke("system:info"),
   reloadIp: () => ipcRenderer.invoke("system:ip"),
-  onBotLog: (cb) => ipcRenderer.on("bot:log", (_e, p) => cb(p)),
-  onBotProgress: (cb) => ipcRenderer.on("bot:progress", (_e, p) => cb(p)),
-  onBotSaved: (cb) => ipcRenderer.on("bot:saved", (_e, p) => cb(p)),
+  onBotLog: (cb) => on("bot:log", cb),
+  onBotProgress: (cb) => on("bot:progress", cb),
+  onBotSaved: (cb) => on("bot:saved", cb),
 });

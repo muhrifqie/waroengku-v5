@@ -17,6 +17,7 @@ export async function initDb() {
   });
   SQLjs = SQL;
   db = fs.existsSync(file) ? new SQL.Database(fs.readFileSync(file)) : new SQL.Database();
+  db.run("PRAGMA temp_store=MEMORY"); // sql.js in-memory VFS: tanpa ini VACUUM → SQLITE_CANTOPEN
   db.run(`
     CREATE TABLE IF NOT EXISTS accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,6 +29,7 @@ export async function initDb() {
   `);
   const cols = new Set([...db.exec("PRAGMA table_info(accounts)")[0].values].map((v) => v[1]));
   if (!cols.has("product")) db.run("ALTER TABLE accounts ADD COLUMN product TEXT DEFAULT 'capcut'");
+  if (!cols.has("pipopay_link")) db.run("ALTER TABLE accounts ADD COLUMN pipopay_link TEXT"); // link checkout VN
 
   db.run(`CREATE TABLE IF NOT EXISTS proxies (
     id INTEGER PRIMARY KEY AUTOINCREMENT, raw TEXT, scheme TEXT, host TEXT, port INTEGER,
@@ -93,7 +95,7 @@ function all(sql, params = []) {
 export function listAccounts() {
   // JANGAN ambil cookies_json (bisa MB per baris) → cukup flag has_session biar ringan
   return all(
-    `SELECT id, COALESCE(product,'capcut') AS product, email, password, prices,
+    `SELECT id, COALESCE(product,'capcut') AS product, email, password, prices, pipopay_link,
        CASE WHEN cookies_json IS NOT NULL AND cookies_json != '' THEN 1 ELSE 0 END AS has_session,
        created_at
      FROM accounts ORDER BY id DESC`
@@ -105,11 +107,12 @@ export function saveAccount(a) {
     Object.entries(a.prices || {}).filter(([k]) => /^pro|^tim|team/i.test(k))
   );
   db.run(
-    `INSERT INTO accounts (product, email, password, prices, cookies_json)
-     VALUES (?,?,?,?,?)
+    `INSERT INTO accounts (product, email, password, prices, pipopay_link, cookies_json)
+     VALUES (?,?,?,?,?,?)
      ON CONFLICT(email) DO UPDATE SET
-       product=excluded.product, password=excluded.password, prices=excluded.prices, cookies_json=excluded.cookies_json`,
-    [a.product || "capcut", a.email, a.password, JSON.stringify(keep), a.cookiesJson || null]
+       product=excluded.product, password=excluded.password, prices=excluded.prices,
+       pipopay_link=COALESCE(excluded.pipopay_link, pipopay_link), cookies_json=excluded.cookies_json`,
+    [a.product || "capcut", a.email, a.password, JSON.stringify(keep), a.checkoutLink || null, a.cookiesJson || null]
   );
   persist();
 }
@@ -169,6 +172,7 @@ export function importFrom(src) {
     test.close();
     if (db && db.close) db.close();
     db = new SQLjs.Database(bytes);
+    db.run("PRAGMA temp_store=MEMORY");
     db.run(`
       CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, product TEXT DEFAULT 'capcut', email TEXT UNIQUE, password TEXT, prices TEXT, cookies_json TEXT, created_at TEXT DEFAULT (datetime('now')));
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
@@ -198,7 +202,7 @@ export function compactDb() {
       db.run("UPDATE accounts SET cookies_json=? WHERE id=?", [JSON.stringify(st), r.id]);
     } catch {}
   }
-  db.run("VACUUM");
+  try { db.run("PRAGMA temp_store=MEMORY"); db.run("VACUUM"); } catch {} // best-effort; jangan sampai crash
   dirty = true;
   flushDb();
   const after = fs.existsSync(file) ? fs.statSync(file).size : 0;
@@ -206,8 +210,10 @@ export function compactDb() {
 }
 
 // ---------- proxies ----------
-export function randomProxies(limit = 200) {
-  return all("SELECT scheme, host, port, username, password FROM proxies WHERE ok=1 ORDER BY RANDOM() LIMIT ?", [limit]);
+export function randomProxies(limit = 200, scheme = null) {
+  const w = scheme ? "ok=1 AND scheme=?" : "ok=1";
+  return all(`SELECT scheme, host, port, username, password FROM proxies WHERE ${w} ORDER BY RANDOM() LIMIT ?`,
+    scheme ? [scheme, limit] : [limit]);
 }
 export function listProxies() {
   return all("SELECT * FROM proxies ORDER BY ok DESC, latency ASC");

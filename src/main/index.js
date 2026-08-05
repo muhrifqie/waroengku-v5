@@ -27,6 +27,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
+process.on("uncaughtException", (e) => console.error("uncaught:", e)); // jangan tampilkan dialog fatal
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isWin = process.platform === "win32";
@@ -224,7 +225,7 @@ ipcMain.on("open-external", (_e, url) => shell.openExternal(url));
 ipcMain.handle("db:list", () => store.listAccounts());
 ipcMain.handle("db:delete", (_e, ids) => (store.deleteAccounts(ids), store.listAccounts()));
 ipcMain.handle("db:importLegacy", async () => {
-  const guess = path.join(__dirname, "../../../accounts.db");
+  const guess = path.join(__dirname, "../../_backup/accounts.db");
   const res = await dialog.showOpenDialog(win, {
     title: "Pilih accounts.db lama",
     defaultPath: fs.existsSync(guess) ? guess : app.getPath("home"),
@@ -290,7 +291,8 @@ function makeHooks(evt) {
   };
 }
 function withProxies(cfg) {
-  if (cfg.useProxy) cfg.proxies = store.randomProxies();
+  // proxy eksplisit dari renderer menang; kalau tidak ada, ambil dari pool
+  if (cfg.useProxy && !cfg.proxies?.length) cfg.proxies = store.randomProxies(200, cfg.region === "vn" ? "socks5" : null);
   return cfg;
 }
 

@@ -5,6 +5,48 @@ import { createOtp } from "./otp.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const getCamoufox = async () => (await import("camoufox-js")).Camoufox;
+
+// Firefox (Playwright) TIDAK mendukung SOCKS5 dengan autentikasi. Solusi: relay HTTP lokal
+// tanpa-auth di 127.0.0.1 yang meneruskan ke SOCKS5 upstream (pakai kredensial) via CONNECT.
+async function startSocksRelay(p) {
+  const http = await import("node:http");
+  const { SocksClient } = await import("socks");
+  const proxy = { host: p.host, port: Number(p.port), type: p.scheme === "socks4" ? 4 : 5,
+    userId: p.username || undefined, password: p.password || undefined };
+  const server = http.createServer((_req, res) => res.end()); // http polos tak dipakai (situs pakai https/CONNECT)
+  server.on("connect", async (req, client, head) => {
+    const i = req.url.lastIndexOf(":");
+    const host = req.url.slice(0, i), port = Number(req.url.slice(i + 1));
+    try {
+      const { socket } = await SocksClient.createConnection({ proxy, command: "connect", destination: { host, port } });
+      client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      if (head?.length) socket.write(head);
+      socket.pipe(client); client.pipe(socket);
+      const kill = () => { socket.destroy(); client.destroy(); };
+      socket.on("error", kill); client.on("error", kill); client.on("close", () => socket.destroy());
+    } catch { client.destroy(); }
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  return { url: `http://127.0.0.1:${server.address().port}`, close: () => server.close() };
+}
+
+// Bangun opsi launch Camoufox sendiri + kelola relay SOCKS. geoip dilewatkan proxy yang sama
+// (relay lokal) sehingga IP publik yang terdeteksi tetap IP exit proxy (mis. Vietnam).
+async function launchCamoufox({ headless, p }) {
+  const { launchOptions } = await import("camoufox-js");
+  const { firefox } = await import("playwright-core");
+  let relay = null, proxy;
+  if (p && /^socks/i.test(p.scheme || "")) {
+    relay = await startSocksRelay(p);
+    proxy = { server: relay.url };
+  } else if (p) {
+    proxy = { server: `${p.scheme === "https" ? "http" : p.scheme || "http"}://${p.host}:${p.port}`,
+      username: p.username || undefined, password: p.password || undefined };
+  }
+  const built = await launchOptions({ headless, proxy, geoip: !!proxy });
+  const browser = await firefox.launch(built);
+  return { browser, cleanup: () => relay?.close() };
+}
 const clean = (s) => String(s).replace(/\[[0-9;]*m/g, "").split("\n")[0].trim();
 
 // ---------------------------------------------------------------- CapCut
@@ -17,6 +59,7 @@ class CapCut {
     this.orderId = null;
     this.prices = {};
     this.cookiesJson = null;
+    this.checkoutLink = null;
   }
 
   async orderEmail() {
@@ -80,6 +123,27 @@ class CapCut {
     return code;
   }
 
+  // Pasang penyapu modal di latar belakang: terus tutup survey ("Bỏ qua") & popup what's-new
+  // (.lv-modal-close-icon) yg nutupin tombol, TAPI jangan sentuh modal langganan/checkout.
+  async _installModalSweeper(page) {
+    await page.evaluate(() => {
+      if (window.__sweep) return;
+      const vis = (el) => {
+        if (!el) return false;
+        const s = getComputedStyle(el), r = el.getBoundingClientRect();
+        return s.display !== "none" && s.visibility !== "hidden" && r.width > 0 && r.height > 0;
+      };
+      const inPricing = (el) => el.closest(".subscriptionModal-sections, [class*='subscriptionProduct'], [class*='subscriptionModal']");
+      const sweep = () => {
+        document.querySelectorAll(".skip-mrkR37").forEach((el) => vis(el) && el.click());
+        document.querySelectorAll(".operation-features-modal .lv-modal-close-icon").forEach((el) => vis(el) && el.click());
+        document.querySelectorAll(".lv-modal-close-icon").forEach((el) => vis(el) && !inPricing(el) && el.click());
+      };
+      window.__sweep = setInterval(sweep, 500);
+      sweep();
+    });
+  }
+
   async _dismissModals(page, seconds = 25) {
     const js = `() => {
       const vis = el => {
@@ -115,22 +179,27 @@ class CapCut {
 
   async _openPricing(page) {
     this.log("Opening pricing (Upgrade)");
-    const sels = [
-      ".LvHeaderUpgradeVipNew",
-      "[data-id='TitleBarUpgradeVip'] .upgrade-text",
-      "[data-id='TitleBarUpgradeVip'] button.credit-section",
-      "[data-id='TitleBarUpgradeVip']",
-      "text=Upgrade",
-    ];
-    for (const sel of sels) {
-      const el = await page.$(sel);
-      if (!el) continue;
+    const clickUpgrade = () => page.evaluate(() => {
+      const sels = [".LvHeaderUpgradeVipNew", "[data-id='TitleBarUpgradeVip'] .upgrade-text",
+        "[data-id='TitleBarUpgradeVip'] button.credit-section", "[data-id='TitleBarUpgradeVip']"];
+      for (const s of sels) { const el = document.querySelector(s); if (el) { el.click(); return true; } }
+      // fallback teks: Upgrade / Nâng cấp (VN)
+      const t = [...document.querySelectorAll("button, a, div")]
+        .find((e) => /^(upgrade|nâng cấp)$/i.test((e.textContent || "").trim()) && e.getBoundingClientRect().width > 0);
+      if (t) { t.click(); return true; }
+      return false;
+    });
+    // retry: popup kadang menutupi tombol / modal telat muncul
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      await clickUpgrade();
       try {
-        await page.evaluate((e) => e.click(), el);
+        await page.waitForSelector(".subscriptionModal-sections", { timeout: 6000 });
         break;
-      } catch {}
+      } catch {
+        if (attempt === 4) throw new Error("Pricing modal did not open");
+        await page.waitForTimeout(800);
+      }
     }
-    await page.waitForSelector(".subscriptionModal-sections", { timeout: 20000 });
     this.log("Pricing modal opened");
     const prices = await page.evaluate(() => {
       const out = {};
@@ -196,30 +265,77 @@ class CapCut {
       { waitUntil: "domcontentloaded" }
     );
 
+    await this._installModalSweeper(page);
     await this._dismissModals(page);
     const state = await context.storageState();
     // pangkas: cookies penuh, localStorage cuma origin capcut/bytedance (buang ad/analytics yg bikin bengkak)
     state.origins = (state.origins || []).filter((o) => /capcut|byteoversea|ibyteimg|bytedance|tiktok/i.test(o.origin || ""));
     this.cookiesJson = JSON.stringify(state);
     this.log("Login session saved");
-    try {
-      this.prices = await this._openPricing(page);
-    } catch (e) {
-      this.log(`Pricing skipped: ${clean(e.message)}`, "warn");
+
+    if (this.cfg.region === "vn") {
+      await this._vnClaimPro(page, context);
+    } else {
+      try {
+        this.prices = await this._openPricing(page);
+      } catch (e) {
+        this.log(`Pricing skipped: ${clean(e.message)}`, "warn");
+      }
     }
+  }
+
+  // Tunggu URL popup checkout sampai final: cocok pola cashier/pipopay + berhenti berubah.
+  async _waitCheckoutUrl(popup, timeout = 60000) {
+    const end = Date.now() + timeout;
+    let last = "", stableSince = Date.now();
+    while (Date.now() < end) {
+      let u;
+      try { u = popup.url(); } catch { break; } // popup ditutup
+      if (u !== last) { last = u; stableSince = Date.now(); }
+      const looksFinal = /pipopay|cashier|checkout|agreement|payin/i.test(u) && u.includes("?");
+      if (looksFinal && Date.now() - stableSince >= 2000) return u;
+      await popup.waitForTimeout(400).catch(() => {});
+    }
+    return last || popup.url();
+  }
+
+  // VN: buka checkout, pilih plan Pro gratis, tangkap popup baru + simpan link-nya.
+  async _vnClaimPro(page, context) {
+    this.prices = await this._openPricing(page); // buka modal langganan + ambil harga
+
+    // Klik tombol "Upgrade" (.subscriptionProductSection-action) di kartu plan "Pro".
+    // Popup baru (window.open) → tangkap lewat page event.
+    const clickPro = () => page.evaluate(() => {
+      const title = (s) => (s.querySelector(".subscriptionProductSection-title")?.textContent || "").trim();
+      const secs = [...document.querySelectorAll(".subscriptionProductSection")];
+      const pro = secs.find((s) => title(s).toLowerCase() === "pro") || secs.find((s) => /pro/i.test(title(s)));
+      const btn = pro?.querySelector(".subscriptionProductSection-action") || pro?.querySelector("button");
+      if (!btn) return false;
+      btn.click();
+      return true;
+    });
+
+    this.log("Selecting free Pro plan");
+    const [popup, ok] = await Promise.all([
+      context.waitForEvent("page", { timeout: 30000 }).catch(() => null),
+      clickPro(),
+    ]);
+    if (!ok) throw new Error("Pro plan button not found");
+    if (!popup) throw new Error("Checkout popup did not open");
+
+    this.log("Waiting for checkout URL to finalize");
+    this.checkoutLink = await this._waitCheckoutUrl(popup);
+    this.log(`Pipopay link saved: ${this.checkoutLink}`, "success");
+    await popup.close().catch(() => {});
   }
 
   async run() {
     this.log("Starting CapCut registration");
     await this.orderEmail();
-    const Camoufox = await getCamoufox();
     const p = this.cfg.proxy;
-    const proxy = p ? {
-      server: `${p.scheme === "https" ? "http" : p.scheme || "http"}://${p.host}:${p.port}`,
-      username: p.username || undefined, password: p.password || undefined,
-    } : undefined;
-    if (proxy) this.log(`Using proxy ${p.host}:${p.port} (${p.scheme})`);
-    const browser = await Camoufox({ headless: this.cfg.headless, proxy });
+    if (p) this.log(`Using proxy ${p.host}:${p.port} (${p.scheme})`);
+    // geoip:true → samakan timezone/locale/geolokasi ke IP proxy (penting utk VN)
+    const { browser, cleanup } = await launchCamoufox({ headless: this.cfg.headless, p });
     try {
       const context = await browser.newContext();
       const page = await context.newPage();
@@ -227,12 +343,14 @@ class CapCut {
       await this._flow(page, context);
     } finally {
       await browser.close();
+      cleanup();
       await this.otp.cancel(this.orderId);
     }
     return {
       email: this.email,
       password: this.cfg.password,
       prices: this.prices,
+      checkoutLink: this.checkoutLink,
       cookiesJson: this.cookiesJson,
     };
   }
@@ -284,5 +402,7 @@ export async function runBatch(cfg, hooks, shouldStop) {
   }
 
   await Promise.all(Array.from({ length: c }, worker));
+  const stopped = shouldStop();
+  hooks.log(`${stopped ? "Stopped" : "Finished"} — ${ok}/${n} success, ${done - ok} failed`, ok === n && !stopped ? "success" : "warn");
   return { ok, total: n };
 }

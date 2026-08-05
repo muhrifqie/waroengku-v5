@@ -72,9 +72,12 @@ export function AppProvider({ children }) {
       refresh();
       setLoaded(true);
     })();
-    window.api.onBotLog(pushLog);
-    window.api.onBotProgress((p) => setProgress(p));
-    window.api.onBotSaved(() => refresh());
+    const offs = [
+      window.api.onBotLog(pushLog),
+      window.api.onBotProgress((p) => setProgress(p)),
+      window.api.onBotSaved(() => refresh()),
+    ];
+    return () => offs.forEach((off) => off());
   }, []);
 
   useEffect(() => {
@@ -89,7 +92,7 @@ export function AppProvider({ children }) {
     site: cfg.site.trim(),
   });
 
-  async function startBot() {
+  async function startBot(region = "id", proxies = null) {
     setRunning(true);
     focusTerminal();
     setProgress({ done: 0, total: Number(cfg.count) || 1 });
@@ -100,7 +103,9 @@ export function AppProvider({ children }) {
       site: cfg.site.trim(), zone: cfg.zone.trim(),
       password: cfg.password, name: cfg.name,
       birthday: { year: cfg.year, month: cfg.month, day: cfg.day },
-      count: cfg.count, concurrent: cfg.concurrent, headless: cfg.headless, useProxy: cfg.useProxy,
+      count: cfg.count, concurrent: cfg.concurrent, headless: cfg.headless,
+      region, useProxy: region === "vn" ? true : cfg.useProxy, // VN wajib lewat proxy SOCKS5
+      proxies: proxies?.length ? proxies : undefined, // daftar proxy eksplisit (mis. VN tervalidasi)
     });
     setRunning(false);
   }

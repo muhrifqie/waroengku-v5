@@ -17,7 +17,7 @@ export default function Settings() {
   }, [dark]);
   useEffect(() => {
     window.api.getVersion().then(setVer);
-    window.api.onUpdateStatus(setUpd);
+    return window.api.onUpdateStatus(setUpd);
   }, []);
 
   async function onCheckUpdate() {

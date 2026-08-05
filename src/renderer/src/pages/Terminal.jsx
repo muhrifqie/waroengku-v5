@@ -114,7 +114,7 @@ export default function Terminal() {
         {/* log body */}
         <div ref={boxRef} onScroll={onScroll} className="relative min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-[12px] leading-6">
           {shown.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-[#6a675c]">Belum ada aktivitas. Jalankan proses dari CapCut Tools.</div>
+            <div className="flex h-full items-center justify-center text-[#6a675c]">Belum ada aktivitas. Jalankan proses dari CapCut Creator.</div>
           ) : (
             shown.map((l, i) => (
               <div key={i} className="flex gap-3 whitespace-pre-wrap hover:bg-white/[0.03]">

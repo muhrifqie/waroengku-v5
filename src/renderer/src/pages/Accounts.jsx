@@ -25,10 +25,21 @@ export default function Accounts() {
   const toggleAll = () => setSel(allChecked ? new Set() : new Set(filtered.map((r) => r.id)));
 
   const selWithSession = [...sel].filter((id) => rows.find((r) => r.id === id)?.has_session);
-  function copyEmails() {
-    const em = rows.filter((r) => sel.has(r.id)).map((r) => r.email);
-    if (em.length) navigator.clipboard.writeText(em.join("\n"));
+  const [copied, setCopied] = useState("");
+  function copy(text, label) {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(""), 1500);
   }
+  const selRows = () => rows.filter((r) => sel.has(r.id));
+  function copyEmails() { copy(selRows().map((r) => r.email).join("\n"), `${sel.size} email disalin`); }
+  // combo: email[tab]password[tab]link — link = pipopay (VN), kosong kalau tak ada
+  function copyCombo() {
+    const lines = selRows().map((r) => `${r.email}\t${r.password}\t${r.pipopay_link || ""}`);
+    copy(lines.join("\n"), `${lines.length} baris combo disalin`);
+  }
+  const hasLink = filtered.some((r) => r.pipopay_link);
   async function remove() {
     if (!sel.size) return;
     await del([...sel]);
@@ -81,9 +92,10 @@ export default function Accounts() {
             <Button variant="primary" size="sm" onClick={() => restore(selWithSession)} disabled={!selWithSession.length} title={sel.size && !selWithSession.length ? "Akun terpilih tidak punya sesi" : ""}><RotateCcw size={15} /> Restore{selWithSession.length ? ` (${selWithSession.length})` : ""}</Button>
             <Button variant="danger" size="sm" onClick={remove} disabled={!sel.size}><Trash2 size={15} /> Hapus</Button>
             <Button size="sm" onClick={copyEmails} disabled={!sel.size}><Copy size={15} /> Email</Button>
+            <Button size="sm" onClick={copyCombo} disabled={!sel.size} title="email⇥password⇥link"><Copy size={15} /> Combo</Button>
             <Button size="sm" onClick={() => exportCSV(filtered)} disabled={!filtered.length}><Download size={15} /> CSV</Button>
             <Button size="icon" onClick={refresh} title="Refresh"><RefreshCw size={15} /></Button>
-            {sel.size > 0 && <span className="text-[12px] text-muted-fg">{sel.size} dipilih</span>}
+            {copied ? <span className="text-[12px] font-medium text-success">{copied}</span> : sel.size > 0 && <span className="text-[12px] text-muted-fg">{sel.size} dipilih</span>}
             <div className="relative ml-auto min-w-0">
               <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-fg" />
               <Input className="!h-9 w-56 max-w-full !pl-9" placeholder="cari email" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -96,7 +108,7 @@ export default function Accounts() {
               <thead>
                 <tr className="sticky top-0 z-10 bg-secondary text-muted-fg">
                   <th className="w-10 px-3 py-2.5 text-left"><input type="checkbox" className="accent-[var(--primary)]" checked={allChecked} onChange={toggleAll} /></th>
-                  {(path === "all" ? ["Folder", "Email", "Password", "Pro", "Teams", "Sesi", "Dibuat"] : ["Email", "Password", "Pro", "Teams", "Sesi", "Dibuat"]).map((h) => (
+                  {[...(path === "all" ? ["Folder"] : []), "Email", "Password", ...(hasLink ? ["Pipopay"] : []), "Pro", "Teams", "Sesi", "Dibuat"].map((h) => (
                     <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide">{h}</th>
                   ))}
                   <th className="px-3 py-2.5"></th>
@@ -113,6 +125,14 @@ export default function Accounts() {
                       {path === "all" && <td className="px-3 py-1.5"><span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium">{fname(r.product)}</span></td>}
                       <td className="px-3 py-1.5">{r.email}</td>
                       <td className="px-3 py-1.5">{r.password}</td>
+                      {hasLink && (
+                        <td className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
+                          {r.pipopay_link
+                            ? <button onClick={() => copy(r.pipopay_link, "Link disalin")} title={r.pipopay_link}
+                                className="inline-flex max-w-[220px] items-center gap-1 truncate text-primary hover:underline"><Copy size={12} className="shrink-0" /> <span className="truncate">{r.pipopay_link.replace(/^https?:\/\//, "")}</span></button>
+                            : <span className="text-muted-fg">—</span>}
+                        </td>
+                      )}
                       <td className="px-3 py-1.5 text-right tabular-nums">{pro}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">{team}</td>
                       <td className="px-3 py-1.5 text-center">{r.has_session ? <span className="inline-block h-2 w-2 rounded-full bg-success" /> : <span className="inline-block h-2 w-2 rounded-full bg-muted-fg/30" />}</td>

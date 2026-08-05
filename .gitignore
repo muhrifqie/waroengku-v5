@@ -1,7 +1,5 @@
 node_modules/
 out/
 dist/
-cookies/
-accounts.db
-settings.json
-akun.txt
+_backup/
+electron/
