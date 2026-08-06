@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("api", {
   onSetupLog: (cb) => on("setup:log", cb),
 
   openExternal: (url) => ipcRenderer.send("open-external", url),
+  notify: (title, body) => ipcRenderer.send("notify", { title, body }),
   getVersion: () => ipcRenderer.invoke("app:version"),
   checkUpdate: () => ipcRenderer.invoke("update:check"),
   downloadUpdate: () => ipcRenderer.invoke("update:download"),
@@ -35,6 +36,8 @@ contextBridge.exposeInMainWorld("api", {
   listProxies: () => ipcRenderer.invoke("proxy:list"),
   deleteProxies: (ids) => ipcRenderer.invoke("proxy:delete", ids),
   detectProxies: (lines) => ipcRenderer.invoke("proxy:detect", lines),
+  cliproxyInfo: (creds) => ipcRenderer.invoke("cliproxy:info", creds),
+  cliproxyFetch: (args) => ipcRenderer.invoke("cliproxy:fetch", args),
   listFolders: () => ipcRenderer.invoke("folders:list"),
   createFolder: (args) => ipcRenderer.invoke("folders:create", args),
   updateFolder: (args) => ipcRenderer.invoke("folders:update", args),
@@ -45,8 +48,11 @@ contextBridge.exposeInMainWorld("api", {
   // bot
   startBot: (cfg) => ipcRenderer.invoke("bot:start", cfg),
   startOutlook: (cfg) => ipcRenderer.invoke("outlook:start", cfg),
-  stopBot: () => ipcRenderer.send("bot:stop"),
+  startCanva: (cfg) => ipcRenderer.invoke("canva:start", cfg),
+  startPayment: (cfg) => ipcRenderer.invoke("pay:start", cfg),
+  stopBot: (group) => ipcRenderer.send("bot:stop", group || "create"),
   restoreSession: (id) => ipcRenderer.invoke("bot:restore", id),
+  refetchLink: (id) => ipcRenderer.invoke("link:refetch", id),
   loadDomains: (args) => ipcRenderer.invoke("domains:load", args),
   providerBalance: (args) => ipcRenderer.invoke("provider:balance", args),
   checkDomain: (args) => ipcRenderer.invoke("provider:checkDomain", args),
@@ -57,4 +63,6 @@ contextBridge.exposeInMainWorld("api", {
   onBotLog: (cb) => on("bot:log", cb),
   onBotProgress: (cb) => on("bot:progress", cb),
   onBotSaved: (cb) => on("bot:saved", cb),
+  onPayQr: (cb) => on("pay:qr", cb),
+  onPayStatus: (cb) => on("pay:status", cb),
 });

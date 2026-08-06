@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LayoutDashboard, Video, Mail, Users, Plug, Network, TerminalSquare, Settings, ChevronRight, Wand2, BadgeCheck } from "lucide-react";
+import { LayoutDashboard, Video, Mail, Users, Plug, Network, TerminalSquare, Settings, ChevronRight, Wand2, BadgeCheck, CreditCard, Palette } from "lucide-react";
 import logo from "../assets/icon.png";
 import { useApp } from "../store.jsx";
 
@@ -8,9 +8,11 @@ const GROUPS = [
   { title: "Tools", items: [
     { key: "capcut", label: "CapCut", icon: Video, children: [
       { key: "capcut-creator", label: "Creator", icon: Wand2 },
+      { key: "capcut-pay", label: "Auto Payment", icon: CreditCard },
       { key: "capcut-subs", label: "Check Subs", icon: BadgeCheck },
     ] },
     { key: "outlook", label: "Outlook", icon: Mail },
+    { key: "canva", label: "Canva", icon: Palette },
   ] },
   { title: "Data", items: [
     { key: "accounts", label: "Akun", icon: Users },

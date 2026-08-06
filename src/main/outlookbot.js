@@ -1,5 +1,6 @@
 import { Adspower } from "./adspower.js";
 import { createOutlookAccount } from "./outlook.js";
+import { trackBrowser } from "./bot.js";
 
 const clean = (s) => String(s).replace(/\[[0-9;]*m/g, "").split("\n")[0].trim();
 
@@ -27,6 +28,7 @@ export async function runOutlookBatch(cfg, hooks, shouldStop) {
       profileId = pid;
       log(`AdsPower profile created (${os})`);
       const { browser, page } = await ads.connectCDP(pid);
+      const untrack = trackBrowser(browser, "create"); // ikut ditutup paksa saat Stop (grup create)
       try {
         const res = await createOutlookAccount(page, { password: cfg.fixedPassword ? cfg.password : null }, log);
         if (res.success) {
@@ -37,6 +39,7 @@ export async function runOutlookBatch(cfg, hooks, shouldStop) {
           log(`Failed: ${res.error}`, "error");
         }
       } finally {
+        untrack();
         await browser.close().catch(() => {});
         await ads.stop(pid).catch(() => {});
         if (cfg.deleteProfile) await ads.remove([pid]).catch(() => {});

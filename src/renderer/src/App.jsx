@@ -5,9 +5,11 @@ import Setup from "./components/Setup.jsx";
 import Overview from "./pages/Overview.jsx";
 import Generator from "./pages/Generator.jsx";
 import CheckSubs from "./pages/CheckSubs.jsx";
+import AutoPayment from "./pages/AutoPayment.jsx";
 import Accounts from "./pages/Accounts.jsx";
 import Integrations from "./pages/Integrations.jsx";
 import Outlook from "./pages/Outlook.jsx";
+import Canva from "./pages/Canva.jsx";
 import Proxy from "./pages/Proxy.jsx";
 import Terminal from "./pages/Terminal.jsx";
 import Settings from "./pages/Settings.jsx";
@@ -16,9 +18,11 @@ import { AppProvider, useApp } from "./store.jsx";
 const PAGES = {
   dashboard: (p) => <Overview setPage={p} />,
   "capcut-creator": (p) => <Generator setPage={p} />,
+  "capcut-pay": (p, active) => <AutoPayment active={active} />,
   "capcut-subs": () => <CheckSubs />,
   accounts: () => <Accounts />,
   outlook: (p) => <Outlook setPage={p} />,
+  canva: (p) => <Canva setPage={p} />,
   proxy: () => <Proxy />,
   integrations: () => <Integrations />,
   terminal: () => <Terminal />,
@@ -44,7 +48,7 @@ function Shell() {
       <main className="min-w-0 flex-1 overflow-hidden">
         {[...seen].map((key) => (
           <div key={key} className="h-full" hidden={page !== key}>
-            {PAGES[key](setPage)}
+            {PAGES[key](setPage, page === key)}
           </div>
         ))}
       </main>

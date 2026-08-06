@@ -2,8 +2,8 @@
 
 # Waroengku V5
 
-**Automation suite desktop untuk pembuatan & manajemen akun massal**
-CapCut · Outlook · dengan browser anti-deteksi, manajemen proxy, dan integrasi penyedia OTP/Captcha.
+**Automation suite desktop untuk pembuatan, langganan & manajemen akun massal**
+CapCut (ID/VN) · Canva · Outlook — dengan browser anti-deteksi, manajemen proxy, Auto Payment (MoMo QR), dan integrasi penyedia OTP/Captcha.
 
 Dibangun dengan **Electron · Vite · React · TailwindCSS** — antarmuka bertema hangat ala Claude (font Anthropic, palet terracotta, light/dark).
 
@@ -13,18 +13,24 @@ Dibangun dengan **Electron · Vite · React · TailwindCSS** — antarmuka berte
 
 ## ✨ Fitur
 
-- **CapCut Creator** — daftar akun CapCut otomatis via **Camoufox** (Firefox anti-fingerprint). OTP email dari berbagai penyedia, isi form human-like, simpan sesi login, dan **restore sesi** kapan saja.
-- **Outlook Creator** — daftar akun Outlook di **profil AdsPower** baru (fingerprint acak). Alur `signup.live.com` dengan gerakan mouse/ketikan menyerupai manusia; captcha "Press & Hold" diselesaikan manual (dengan notifikasi suara + window flash).
-- **Manajemen Akun (Folder Explorer)** — semua akun tersimpan di satu database SQLite, dikelompokkan dalam **folder** yang bisa dibuat/edit/hapus. Cari, filter, export CSV, salin, dan restore.
-- **Proxy** — tempel proxy format apa pun (satu input), **deteksi protokol otomatis** (HTTP/HTTPS/SOCKS4/SOCKS5), uji koneksi + exit IP/negara/ISP/latensi, lalu rotasi otomatis ke tiap tool.
+- **CapCut Creator (ID & VN)** — daftar akun CapCut otomatis via **Camoufox** (Firefox anti-fingerprint). OTP email dari berbagai penyedia, isi form human-like, simpan sesi login, dan **restore sesi** kapan saja.
+  - Mode **VN nonstop**: 1 proxy = 1 akun, jalan sampai proxy habis. Proxy VN ditarik otomatis dari halaman **Proxy**, dicek hidup/mati dulu, lalu **paralel diatur manual** (default = jumlah proxy).
+  - **Random Domain**: tiap akun memakai domain email acak dari semua domain yang tersedia di penyedia.
+- **Auto Payment (CapCut Pro · MoMo QR)** — buka link Pipopay → pilih MoMo → **QR di-mirror ke aplikasi** untuk di-scan admin. QR dicek tiap 1 detik; begitu hilang dari halaman (di-scan), kartu otomatis hilang dan hasil (**Berhasil / Gagal / Kedaluwarsa**) muncul di bawah. Ada **Bayar (terpilih)** & **Bayar Semua** (mulai dari akun terlama).
+  - **Berjalan independen dari Creator** — auto-payment bisa jalan berbarengan selagi auto-create berlangsung; Stop tiap proses terpisah.
+- **Canva Creator** — daftar akun Canva via email Litensi + verifikasi kode + set password.
+- **Outlook Creator** — daftar akun Outlook di **profil AdsPower** baru (fingerprint acak). Alur `signup.live.com` human-like; captcha "Press & Hold" diselesaikan manual (notifikasi suara + window flash).
+- **Manajemen Akun (Folder Explorer)** — semua akun di satu database SQLite, dikelompokkan dalam **folder** (buat/edit/hapus). Cari, filter, export CSV, salin, restore.
+- **Proxy** — tempel proxy format apa pun (satu input) dengan **deteksi protokol otomatis** (HTTP/HTTPS/SOCKS4/SOCKS5), uji koneksi + exit IP/negara/ISP/latensi. Ambil proxy VN dari **CLIProxy** (cek live dulu, hanya beli kekurangan) atau **DataImpulse**, lalu rotasi otomatis.
 - **Integrasi** — kelola API key penyedia dalam satu tempat:
   - *OTP/Email*: Litensi, SMS Virtual, SMSBower, HeroSMS, TMail, Generator.email
+  - *Proxy*: CLIProxy, DataImpulse
   - *Captcha*: 2Captcha, CapSolver
   - *Browser*: AdsPower
-- **Terminal** — halaman log real-time bergaya konsol: timestamp, tag per-task, warna per-level, filter, pencarian, auto-scroll.
+- **Terminal** — log real-time bergaya konsol: timestamp, tag per-task, warna per-level, filter, pencarian, auto-scroll (log di-batch agar UI tetap ringan saat banyak worker).
 - **Dashboard** — info perangkat (CPU/RAM/IP/Machine ID) + **rekomendasi thread** berdasarkan hardware, jam berjalan, dan pintasan tools.
-- **Database aman** — tersimpan lokal di komputer (tahan update), dengan **Export/Backup**, **Restore**, **Compact (VACUUM)**, dan impor DB lama.
-- **Auto-update** — pembaruan otomatis via **GitHub Releases** (electron-updater): cek → unduh (progress) → restart & pasang.
+- **Database aman** — lokal di komputer (tahan update), dengan **Export/Backup**, **Restore**, **Compact (VACUUM)**, dan impor DB lama.
+- **Auto-update** — via **GitHub Releases** (electron-updater): cek → unduh (progress) → restart & pasang.
 
 ## 🧱 Teknologi
 
@@ -39,12 +45,11 @@ Dibangun dengan **Electron · Vite · React · TailwindCSS** — antarmuka berte
 ## 🚀 Menjalankan (development)
 
 ```bash
-cd electron
 npm install
 npm run dev          # hot-reload
 ```
 
-Saat pertama dibuka, layar **Setup** memeriksa Node, dependencies, dan browser
+Saat pertama dibuka, layar **Setup** memeriksa Node, dependencies, Python/pydeps, dan browser
 Camoufox — tombol **Install & Setup** mengunduh Camoufox (± 150 MB) dengan log langsung.
 
 ## 📦 Build & Rilis
@@ -57,7 +62,7 @@ npm run dist         # + installer NSIS ke dist/
 Rilis publik (auto-update untuk semua pengguna) dijalankan lewat GitHub Actions:
 
 ```bash
-npm version patch    # 5.0.0 → 5.0.1 (auto commit + tag)
+npm version patch    # 5.0.2 → 5.0.3 (auto commit + tag)
 git push --follow-tags
 ```
 
@@ -71,14 +76,15 @@ Push tag `v*` memicu workflow yang mem-build installer Windows dan mem-publish k
 ```
 src/
 ├─ main/            Proses utama (Node)
-│  ├─ index.js      Window, IPC, auto-update
+│  ├─ index.js      Window, IPC, run-token per-grup (create/payment), auto-update
 │  ├─ db.js         SQLite (akun, folder, proxy, settings)
-│  ├─ bot.js        Alur CapCut (Camoufox)
+│  ├─ bot.js        Alur CapCut ID/VN + Canva + Auto Payment (Camoufox)
+│  ├─ cliproxy.js   Klien CLIProxy (cek live → bind proxy VN)
 │  ├─ outlook.js    Alur signup Outlook + outlookbot.js (orkestrasi AdsPower)
 │  ├─ adspower.js   Klien AdsPower (create profile, connect CDP)
-│  ├─ otp.js        Penyedia OTP/email
+│  ├─ otp.js        Penyedia OTP/email (+ mode Random Domain)
 │  ├─ captcha.js    Solver captcha (2Captcha/CapSolver)
-│  └─ proxy.js      Parse & deteksi cerdas proxy
+│  └─ proxy.js      Parse, deteksi & cek hidup/mati proxy
 ├─ preload/         Bridge aman window.api (contextIsolation)
 └─ renderer/        UI React
    └─ src/{pages, components, store.jsx, providers.js, folders.jsx}

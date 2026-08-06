@@ -1,5 +1,7 @@
 import { Fingerprint } from "lucide-react";
 import litensi from "./assets/providers/litensi.png";
+import cliproxy from "./assets/providers/cliproxy.png";
+import dataimpulse from "./assets/providers/dataimpulse.png";
 import smsvirtual from "./assets/providers/smsvirtual.png";
 import smsbower from "./assets/providers/smsbower.png";
 import herosms from "./assets/providers/herosms.png";
@@ -28,6 +30,12 @@ export const PROVIDERS = [
   { id: "generator", name: "Generator.email", kind: "otp", logo: generatoremail,
     endpoint: "https://generator.email",
     fields: [] },
+  { id: "cliproxy", name: "CLIProxy", kind: "proxy", logo: cliproxy,
+    endpoint: "https://api.cliproxy.com",
+    fields: [{ key: "key", label: "Key" }, { key: "token", label: "Token" }] },
+  { id: "dataimpulse", name: "DataImpulse", kind: "proxy", logo: dataimpulse,
+    endpoint: "http://gw.dataimpulse.com:823",
+    fields: [{ key: "proxy", label: "Proxy URL (http://user:pass@gw.dataimpulse.com:823)" }] },
   { id: "adspower", name: "AdsPower", kind: "browser", icon: Fingerprint,
     endpoint: "http://local.adspower.net:50325",
     fields: [{ key: "apiKey", label: "API Key" }] },

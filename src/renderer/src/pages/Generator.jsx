@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Wand2, Play, Square, CheckCircle2, AlertTriangle, ShieldCheck, Loader2, Settings as SettingsIcon, Plug, Star, RefreshCw, Wifi, Trash2, Download, X } from "lucide-react";
+import { Wand2, Play, Square, CheckCircle2, AlertTriangle, ShieldCheck, Loader2, Settings as SettingsIcon, Plug, Star, RefreshCw, Wifi, Download, X } from "lucide-react";
 import { useApp } from "../store.jsx";
 import { Button, Input, Field, Panel, Page, PageHeader, ProviderLogo, Combobox } from "../components/ui.jsx";
 import { PROVIDERS } from "../providers.js";
@@ -58,13 +58,14 @@ export default function Generator({ setPage }) {
     setVdom({ state: "done", ok: r.ok, msg: r.ok ? r.info : (r.error || r.info) });
   }
 
-  const isVN = (c) => /viet\s*nam/i.test(c || "");
+  const isVN = (c) => /viet\s*nam|^vn$/i.test(c || "");
+  const pxKey = (p) => `${p.host}:${p.port}:${p.username || ""}:${p.sid || ""}`;
   function mergeVN(candidates) {
     const vnOnes = candidates.filter((r) => isVN(r.country));
     setPxList((prev) => {
-      const seen = new Set(prev.map((p) => `${p.host}:${p.port}`));
-      const add = vnOnes.filter((r) => !seen.has(`${r.host}:${r.port}`))
-        .map((r) => ({ scheme: r.scheme, host: r.host, port: r.port, username: r.username, password: r.password, ip: r.ip, country: r.country, latency: r.latency }));
+      const seen = new Set(prev.map(pxKey));
+      const add = vnOnes.filter((r) => !seen.has(pxKey(r)))
+        .map((r) => ({ scheme: r.scheme, host: r.host, port: r.port, username: r.username, password: r.password, ip: r.ip, country: r.country, latency: r.latency, sid: r.sid }));
       return [...prev, ...add];
     });
     return { vn: vnOnes.length, rejected: candidates.length - vnOnes.length };
@@ -96,6 +97,21 @@ export default function Generator({ setPage }) {
       onLoadDomains();
     }
   }, [cfg.otpProvider]);
+
+  // VN: default paralel = jumlah proxy. Reseed saat masuk mode VN / daftar proxy berubah; edit manual bertahan sampai daftar berubah lagi.
+  const vnSeed = useRef("");
+  useEffect(() => {
+    if (!vn || !pxList.length) return;
+    const key = `${vn}:${pxList.length}`;
+    if (vnSeed.current !== key) { vnSeed.current = key; setField("concurrent", String(pxList.length)); }
+  }, [vn, pxList.length]);
+
+  // VN: otomatis tarik proxy SOCKS5 VN dari halaman Proxy saat masuk mode (kalau belum ada).
+  const vnPulled = useRef(false);
+  useEffect(() => {
+    if (vn && !vnPulled.current) { vnPulled.current = true; pullFromPage(); }
+    if (!vn) vnPulled.current = false;
+  }, [vn]);
 
   return (
     <Page scroll={false}>
@@ -139,9 +155,9 @@ export default function Generator({ setPage }) {
             <Field label="Domain email">
               <div className="flex gap-1.5">
                 <Combobox className="flex-1" value={cfg.zone} onChange={(v) => { setField("zone", v); setVdom({ state: "idle" }); }}
-                  options={domains.map((d) => d.zone)} placeholder="pilih / ketik domain custom" />
+                  options={["Random Domain", ...domains.map((d) => d.zone)]} placeholder="pilih / ketik domain custom" />
                 <Button size="icon" className="shrink-0" title="Muat ulang domain" onClick={onLoadDomains}><RefreshCw size={15} /></Button>
-                <Button size="icon" className="shrink-0" title="Validasi domain" onClick={onValidateDomain} disabled={vdom.state === "checking" || !cfg.zone}>
+                <Button size="icon" className="shrink-0" title="Validasi domain" onClick={onValidateDomain} disabled={vdom.state === "checking" || !cfg.zone || cfg.zone === "Random Domain"}>
                   {vdom.state === "checking" ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
                 </Button>
               </div>
@@ -152,10 +168,16 @@ export default function Generator({ setPage }) {
             </Field>
             <Field label="Password akun"><Input value={cfg.password} onChange={(e) => setField("password", e.target.value)} /></Field>
             <Field label="Simpan ke folder" className="col-span-2">
-              <select className="h-9 w-full rounded-[10px] border border-border bg-bg px-3 text-[13px] text-fg outline-none focus:border-primary focus:ring-[3px] focus:ring-primary/20"
-                value={cfg.folder} onChange={(e) => setField("folder", e.target.value)}>
-                {folders.map((f) => <option key={f.key} value={f.key}>{f.name}</option>)}
-              </select>
+              {vn ? (
+                <div className="flex h-9 items-center rounded-[10px] border border-border bg-secondary px-3 text-[13px] text-muted-fg">
+                  CapCut VN <span className="ml-1.5 text-[11px]">· otomatis</span>
+                </div>
+              ) : (
+                <select className="h-9 w-full rounded-[10px] border border-border bg-bg px-3 text-[13px] text-fg outline-none focus:border-primary focus:ring-[3px] focus:ring-primary/20"
+                  value={cfg.folder} onChange={(e) => setField("folder", e.target.value)}>
+                  {folders.filter((f) => f.key !== "capcut-vn").map((f) => <option key={f.key} value={f.key}>{f.name}</option>)}
+                </select>
+              )}
             </Field>
           </div>
         </Panel>
@@ -173,7 +195,6 @@ export default function Generator({ setPage }) {
                 {pxBusy ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />} Cek & Tambah
               </Button>
               <Button size="sm" onClick={pullFromPage} disabled={pxBusy}><Download size={14} /> Ambil dari halaman Proxy</Button>
-              {pxList.length > 0 && <Button size="sm" onClick={() => setPxList([])}><Trash2 size={14} /> Kosongkan</Button>}
               {pxNote && <span className="text-[12px] text-muted-fg">{pxNote}</span>}
             </div>
             <p className="mt-1.5 text-[11px] text-muted-fg">Hanya proxy hidup yang exit-nya di Vietnam yang ditambahkan. Rotasi otomatis per akun.</p>
@@ -218,19 +239,33 @@ export default function Generator({ setPage }) {
       </div>
 
       <div className="-mx-6 mt-3 flex flex-wrap items-end gap-4 border-t border-border bg-bg px-6 pt-3.5">
-        <Field label="Jumlah akun" className="w-24"><Input value={cfg.count} onChange={(e) => setField("count", e.target.value)} /></Field>
-
-        <div className="min-w-[200px] max-w-xs flex-1">
-          <div className="mb-1.5 flex items-center justify-between text-[12px]">
-            <span className="font-medium text-muted-fg">Bersamaan</span>
-            <span>
-              <b className={over ? "text-warning" : ""}>{c}</b>
-              <span className="text-muted-fg"> · rekomendasi {rec}</span>
-            </span>
+        {vn ? (
+          // VN: nonstop 1 proxy = 1 akun; paralel diatur manual (default = jumlah proxy)
+          <div className="flex items-end gap-4 pb-1.5">
+            <Field label="Bersamaan" className="w-24">
+              <Input type="number" min="1" max={pxList.length || 1} value={cfg.concurrent}
+                onChange={(e) => setField("concurrent", e.target.value)} />
+            </Field>
+            <div className="pb-1.5 text-[13px] text-muted-fg">
+              <b className="text-fg">{pxList.length}</b> proxy · jalan sampai proxy habis
+            </div>
           </div>
-          <input type="range" min="1" max="20" value={c} onChange={(e) => setField("concurrent", e.target.value)}
-            className="h-1.5 w-full cursor-pointer accent-[var(--primary)]" />
-        </div>
+        ) : (
+          <>
+            <Field label="Jumlah akun" className="w-24"><Input value={cfg.count} onChange={(e) => setField("count", e.target.value)} /></Field>
+            <div className="min-w-[200px] max-w-xs flex-1">
+              <div className="mb-1.5 flex items-center justify-between text-[12px]">
+                <span className="font-medium text-muted-fg">Bersamaan</span>
+                <span>
+                  <b className={over ? "text-warning" : ""}>{c}</b>
+                  <span className="text-muted-fg"> · rekomendasi {rec}</span>
+                </span>
+              </div>
+              <input type="range" min="1" max="20" value={c} onChange={(e) => setField("concurrent", e.target.value)}
+                className="h-1.5 w-full cursor-pointer accent-[var(--primary)]" />
+            </div>
+          </>
+        )}
 
         <label className="flex cursor-pointer items-center gap-2 pb-2 text-[13px] font-medium">
           <input type="checkbox" className="h-4 w-4 accent-[var(--primary)]" checked={cfg.headless} onChange={(e) => setField("headless", e.target.checked)} />
@@ -257,7 +292,7 @@ export default function Generator({ setPage }) {
         <div className="pb-1.5">
           {!ready && !running && <span className="mr-3 inline-flex items-center gap-1.5 text-[12px] text-warning"><AlertTriangle size={14} /> Lengkapi persyaratan</span>}
           {running
-            ? <Button variant="primary" onClick={stopBot}><Square size={15} /> Stop</Button>
+            ? <Button variant="primary" onClick={() => stopBot()}><Square size={15} /> Stop</Button>
             : <Button variant="primary" onClick={() => startBot(region, vn ? pxList : null)} disabled={!ready}><Play size={15} /> Mulai Daftar</Button>}
         </div>
       </div>

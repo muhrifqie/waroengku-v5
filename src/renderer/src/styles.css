@@ -152,6 +152,13 @@
   }
 }
 
+/* garis scan bergerak di atas QR MoMo */
+@keyframes qrscan {
+  0%, 100% { top: 6%; }
+  50% { top: 94%; }
+}
+.qr-scan { animation: qrscan 2.4s ease-in-out infinite; }
+
 /* console log colours */
 .l-step {
   color: #9db9ff;

@@ -4,7 +4,7 @@ import { useApp } from "../store.jsx";
 import { Button, Input, Field, Panel, Page, PageHeader, ProviderLogo } from "../components/ui.jsx";
 import { PROVIDERS } from "../providers.js";
 
-const KIND_LABEL = { otp: "OTP · Nomor & Email", captcha: "Captcha Solver", browser: "Anti-detect Browser" };
+const KIND_LABEL = { otp: "OTP · Nomor & Email", captcha: "Captcha Solver", browser: "Anti-detect Browser", proxy: "Penyedia Proxy" };
 
 function ProviderCard({ p, values, onChange, onCheck, status, recommended }) {
   const hasFields = p.fields.length > 0;
@@ -48,7 +48,8 @@ function ProviderCard({ p, values, onChange, onCheck, status, recommended }) {
 }
 
 export default function Integrations() {
-  const { integrations, setIntegration, checkProvider, captchaBalance, checkAdspower } = useApp();
+  const { integrations, setIntegration, checkProvider, captchaBalance, checkAdspower, checkCliproxy, checkDataimpulse } = useApp();
+  const proxyCheck = (id) => (id === "dataimpulse" ? checkDataimpulse() : checkCliproxy(id));
   const [checks, setChecks] = useState({});
 
   const setCheck = (id, v) => setChecks((c) => ({ ...c, [id]: v }));
@@ -61,6 +62,7 @@ export default function Integrations() {
   const otp = PROVIDERS.filter((p) => p.kind === "otp");
   const captcha = PROVIDERS.filter((p) => p.kind === "captcha");
   const browser = PROVIDERS.filter((p) => p.kind === "browser");
+  const proxy = PROVIDERS.filter((p) => p.kind === "proxy");
 
   const grid = (list, fn) => (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -78,6 +80,7 @@ export default function Integrations() {
       <div className="space-y-5">
         <Panel title="Penyedia OTP / Email">{grid(otp, checkProvider)}</Panel>
         <Panel title="Captcha Solver">{grid(captcha, captchaBalance)}</Panel>
+        <Panel title="Proxy">{grid(proxy, proxyCheck)}</Panel>
         <Panel title="Browser">{grid(browser, checkAdspower)}</Panel>
       </div>
     </Page>

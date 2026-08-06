@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { FolderOpen, RotateCcw, Trash2, Copy, Download, Upload, RefreshCw, Search, Plus, Pencil, ChevronRight, ArrowLeft } from "lucide-react";
+import { FolderOpen, RotateCcw, Trash2, Copy, Mail, ClipboardList, FileDown, Upload, RefreshCw, Search, Plus, Pencil, ChevronRight, ArrowLeft, Link2, Loader2 } from "lucide-react";
 import { useApp } from "../store.jsx";
 import { Button, Input, Field, Page, PageHeader, Modal } from "../components/ui.jsx";
-import { pickPrices, olderThanDay, exportCSV } from "../lib.js";
+import { pickPrices, olderThanDay, exportCSV, fmtWIB } from "../lib.js";
 import { FolderIcon, ICON_KEYS, ALL_FOLDER } from "../folders.jsx";
 
 export default function Accounts() {
-  const { rows, folders, refresh, restore, del, importLegacy, createFolder, updateFolder, deleteFolder } = useApp();
+  const { rows, folders, refresh, restore, refetchLink, del, importLegacy, createFolder, updateFolder, deleteFolder } = useApp();
   const [path, setPath] = useState(null); // null = root explorer, else folder key ("all" = semua)
   const [sel, setSel] = useState(new Set());
   const [search, setSearch] = useState("");
@@ -40,6 +40,15 @@ export default function Accounts() {
     copy(lines.join("\n"), `${lines.length} baris combo disalin`);
   }
   const hasLink = filtered.some((r) => r.pipopay_link);
+
+  const [busy, setBusy] = useState(new Set());
+  async function refetch(id) {
+    setBusy((s) => new Set(s).add(id));
+    const r = await refetchLink(id);
+    setBusy((s) => { const n = new Set(s); n.delete(id); return n; });
+    setCopied(r?.ok ? "Link diperbarui" : (r?.error || "Gagal ambil link"));
+    setTimeout(() => setCopied(""), 2500);
+  }
   async function remove() {
     if (!sel.size) return;
     await del([...sel]);
@@ -89,11 +98,11 @@ export default function Accounts() {
         /* ===== folder contents: table ===== */
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <Button variant="primary" size="sm" onClick={() => restore(selWithSession)} disabled={!selWithSession.length} title={sel.size && !selWithSession.length ? "Akun terpilih tidak punya sesi" : ""}><RotateCcw size={15} /> Restore{selWithSession.length ? ` (${selWithSession.length})` : ""}</Button>
-            <Button variant="danger" size="sm" onClick={remove} disabled={!sel.size}><Trash2 size={15} /> Hapus</Button>
-            <Button size="sm" onClick={copyEmails} disabled={!sel.size}><Copy size={15} /> Email</Button>
-            <Button size="sm" onClick={copyCombo} disabled={!sel.size} title="email⇥password⇥link"><Copy size={15} /> Combo</Button>
-            <Button size="sm" onClick={() => exportCSV(filtered)} disabled={!filtered.length}><Download size={15} /> CSV</Button>
+            <Button variant="primary" size="icon" onClick={() => restore(selWithSession)} disabled={!selWithSession.length} title={selWithSession.length ? `Restore sesi (${selWithSession.length})` : sel.size ? "Akun terpilih tidak punya sesi" : "Restore sesi"}><RotateCcw size={15} /></Button>
+            <Button variant="danger" size="icon" onClick={remove} disabled={!sel.size} title="Hapus"><Trash2 size={15} /></Button>
+            <Button size="icon" onClick={copyEmails} disabled={!sel.size} title="Salin email"><Mail size={15} /></Button>
+            <Button size="icon" onClick={copyCombo} disabled={!sel.size} title="Salin combo (email⇥password⇥link)"><ClipboardList size={15} /></Button>
+            <Button size="icon" onClick={() => exportCSV(filtered)} disabled={!filtered.length} title="Ekspor CSV"><FileDown size={15} /></Button>
             <Button size="icon" onClick={refresh} title="Refresh"><RefreshCw size={15} /></Button>
             {copied ? <span className="text-[12px] font-medium text-success">{copied}</span> : sel.size > 0 && <span className="text-[12px] text-muted-fg">{sel.size} dipilih</span>}
             <div className="relative ml-auto min-w-0">
@@ -123,22 +132,32 @@ export default function Accounts() {
                         className={"cursor-pointer border-t border-border-subtle transition hover:bg-secondary " + (active ? "bg-primary/15 " : "") + (olderThanDay(r.created_at) ? "text-warning" : "")}>
                       <td className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}><input type="checkbox" className="accent-[var(--primary)]" checked={active} onChange={() => toggle(r.id)} /></td>
                       {path === "all" && <td className="px-3 py-1.5"><span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium">{fname(r.product)}</span></td>}
-                      <td className="px-3 py-1.5">{r.email}</td>
+                      <td className="max-w-[190px] truncate px-3 py-1.5" title={r.email}>
+                        {r.paid ? <span className="mr-1.5 rounded bg-success/15 px-1.5 py-0.5 text-[10px] font-bold text-success">PRO</span> : null}
+                        {r.email}
+                      </td>
                       <td className="px-3 py-1.5">{r.password}</td>
                       {hasLink && (
-                        <td className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
+                        <td className="px-3 py-1.5 text-center" onClick={(e) => e.stopPropagation()}>
                           {r.pipopay_link
-                            ? <button onClick={() => copy(r.pipopay_link, "Link disalin")} title={r.pipopay_link}
-                                className="inline-flex max-w-[220px] items-center gap-1 truncate text-primary hover:underline"><Copy size={12} className="shrink-0" /> <span className="truncate">{r.pipopay_link.replace(/^https?:\/\//, "")}</span></button>
+                            ? <button onClick={() => copy(r.pipopay_link, "Link disalin")} title="Salin link Pipopay"
+                                className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20"><Copy size={11} /> Salin</button>
                             : <span className="text-muted-fg">—</span>}
                         </td>
                       )}
                       <td className="px-3 py-1.5 text-right tabular-nums">{pro}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">{team}</td>
                       <td className="px-3 py-1.5 text-center">{r.has_session ? <span className="inline-block h-2 w-2 rounded-full bg-success" /> : <span className="inline-block h-2 w-2 rounded-full bg-muted-fg/30" />}</td>
-                      <td className="px-3 py-1.5 text-muted-fg">{r.created_at}</td>
+                      <td className="px-3 py-1.5 text-muted-fg" title={r.created_at + " UTC"}>{fmtWIB(r.created_at)}</td>
                       <td className="px-3 py-1.5 text-right" onClick={(e) => e.stopPropagation()}>
-                        <button className="rounded-md p-1.5 text-primary hover:bg-primary/10 disabled:opacity-40" disabled={!r.has_session} title="Restore sesi" onClick={() => restore([r.id])}><RotateCcw size={15} /></button>
+                        <div className="flex items-center justify-end gap-1">
+                          {r.product === "capcut-vn" && r.has_session && (
+                            <button className="rounded-md p-1.5 text-primary hover:bg-primary/10 disabled:opacity-40" disabled={busy.has(r.id)} title="Ambil ulang link Pipopay (login via proxy)" onClick={() => refetch(r.id)}>
+                              {busy.has(r.id) ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />}
+                            </button>
+                          )}
+                          <button className="rounded-md p-1.5 text-primary hover:bg-primary/10 disabled:opacity-40" disabled={!r.has_session} title="Restore sesi" onClick={() => restore([r.id])}><RotateCcw size={15} /></button>
+                        </div>
                       </td>
                     </tr>
                   );

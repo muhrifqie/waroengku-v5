@@ -1,8 +1,8 @@
-import { Folder, Video, ShieldOff, MonitorPlay, Mail, Globe, Star, Boxes, Film, Rocket } from "lucide-react";
+import { Folder, Video, ShieldOff, MonitorPlay, Mail, Globe, Star, Boxes, Film, Rocket, Palette } from "lucide-react";
 
 const MAP = {
   folder: Folder, video: Video, shield: ShieldOff, monitor: MonitorPlay,
-  mail: Mail, globe: Globe, star: Star, film: Film, rocket: Rocket,
+  mail: Mail, globe: Globe, star: Star, film: Film, rocket: Rocket, palette: Palette,
 };
 
 export const ICON_KEYS = Object.keys(MAP);

@@ -12,7 +12,16 @@ export function pickPrices(raw) {
   return { pro, team };
 }
 
-const parse = (c) => Date.parse((c || "").replace(" ", "T") + "Z");
+const parse = (c) => Date.parse((c || "").replace(" ", "T") + "Z"); // created_at disimpan UTC
+// Tampilkan waktu dalam WIB (Asia/Jakarta) apa pun timezone mesin.
+export const fmtWIB = (c) => {
+  const t = parse(c);
+  if (!t) return c || "";
+  return new Date(t).toLocaleString("id-ID", {
+    timeZone: "Asia/Jakarta", day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+};
 export const olderThanDay = (c) => {
   const t = parse(c);
   return t && Date.now() - t > 86400000;
@@ -29,7 +38,7 @@ export function exportCSV(rows) {
   const lines = ["email,password,pro,teams,sesi,dibuat"];
   for (const r of rows) {
     const { pro, team } = pickPrices(r.prices);
-    lines.push([r.email, r.password, pro, team, r.cookies_json ? "yes" : "no", r.created_at].map(esc).join(","));
+    lines.push([r.email, r.password, pro, team, r.cookies_json ? "yes" : "no", fmtWIB(r.created_at)].map(esc).join(","));
   }
   const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv" });
   const a = document.createElement("a");

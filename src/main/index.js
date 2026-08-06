@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, shell, dialog, Notification } from "electron";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
@@ -7,16 +7,18 @@ import icon from "../../resources/icon.png?asset";
 import * as store from "./db.js";
 import os from "node:os";
 import crypto from "node:crypto";
-import { runBatch, restoreSession } from "./bot.js";
+import { runBatch, restoreSession, refetchLink, runPayment, stopAll } from "./bot.js";
 import { providerDomains, providerBalance, providerCheckDomain } from "./otp.js";
 import { captchaBalance } from "./captcha.js";
 import { adspowerStatus } from "./adspower.js";
 import { runOutlookBatch } from "./outlookbot.js";
-import { detectMany } from "./proxy.js";
+import { detectMany, checkProxies } from "./proxy.js";
+import { cliproxyInfo, cliproxyFetch } from "./cliproxy.js";
 import electronUpdater from "electron-updater";
 const { autoUpdater } = electronUpdater;
 
-let stopFlag = false;
+// Token per-grup: create & payment jalan independen. Naik tiap start/stop grup → run lama grup itu kadaluarsa.
+const runTokens = { create: 0, payment: 0 };
 
 // Cegah instance ganda (penyebab "Unable to move the cache: Access is denied")
 if (!app.requestSingleInstanceLock()) {
@@ -42,10 +44,10 @@ let win;
 function createWindow() {
   win = new BrowserWindow({
     title: "Waroengku V5",
-    width: 1120,
-    height: 760,
-    minWidth: 940,
-    minHeight: 640,
+    width: 1400,
+    height: 920,
+    minWidth: 1120,
+    minHeight: 740,
     frame: false,
     backgroundColor: "#1f1f1e",
     icon,
@@ -56,6 +58,8 @@ function createWindow() {
     },
   });
 
+  win.webContents.on("did-finish-load", () => win.webContents.setZoomFactor(1.15)); // perbesar seluruh UI ~15%
+
   win.on("maximize", () => win.webContents.send("win:state", true));
   win.on("unmaximize", () => win.webContents.send("win:state", false));
 
@@ -65,6 +69,8 @@ function createWindow() {
     win.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 }
+
+app.setAppUserModelId("com.waroeng.waroengkuv5"); // wajib agar notifikasi tampil di Windows
 
 app.whenReady().then(async () => {
   await store.initDb();
@@ -220,6 +226,12 @@ ipcMain.handle("setup:install", async (evt) => {
 });
 
 ipcMain.on("open-external", (_e, url) => shell.openExternal(url));
+ipcMain.on("notify", (_e, { title, body }) => {
+  if (!Notification.isSupported()) return;
+  const n = new Notification({ title: title || "Waroengku V5", body: body || "", icon, silent: false });
+  n.on("click", () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+  n.show();
+});
 
 // ---------- database IPC ----------
 ipcMain.handle("db:list", () => store.listAccounts());
@@ -264,6 +276,20 @@ ipcMain.handle("db:import", async () => {
 ipcMain.on("db:open-folder", () => shell.showItemInFolder(store.dbPath()));
 ipcMain.handle("proxy:list", () => store.listProxies());
 ipcMain.handle("proxy:delete", (_e, ids) => (store.deleteProxies(ids), store.listProxies()));
+ipcMain.handle("cliproxy:info", async (_e, creds) => {
+  try { return await cliproxyInfo(creds || {}); }
+  catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle("cliproxy:fetch", async (_e, { creds, num, country }) => {
+  try {
+    const fetched = await cliproxyFetch(creds || {}, num || 1, country || "VN");
+    const { alive, dead } = await checkProxies(fetched); // cek hidup/mati dulu
+    for (const p of alive) store.saveProxy({ ...p, ok: 1 });
+    for (const p of dead) store.saveProxy({ ...p, ok: 0 });
+    return { ok: true, proxies: alive, dead: dead.length };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
 ipcMain.handle("proxy:detect", async (_e, lines) => {
   const results = await detectMany(lines);
   for (const r of results) if (r.ok) store.saveProxy(r);
@@ -279,16 +305,37 @@ ipcMain.handle("settings:get", () => store.getSettings());
 ipcMain.handle("settings:set", (_e, obj) => store.setSettings(obj));
 
 // ---------- bot IPC ----------
-function makeHooks(evt) {
+function makeHooks(evt, group = "create") {
   const send = (ch, payload) => evt.sender.send(ch, payload);
   return {
     log: (line, level = "info", tag) => {
       if (level === "captcha" && win) { win.flashFrame(true); win.show(); }
-      send("bot:log", { line, level, tag });
+      send("bot:log", { line, level, tag, group });
     },
-    progress: (done, total) => send("bot:progress", { done, total }),
+    progress: (done, total) => {
+      win?.setProgressBar(total ? done / total : 2, total ? {} : { mode: "indeterminate" }); // progress di icon taskbar Windows
+      send("bot:progress", { done, total, group });
+    },
     saved: (acc) => { store.saveAccount(acc); send("bot:saved", acc); },
+    proxyDead: (p) => store.deleteProxyByHostPort(p.host, p.port), // proxy sekali pakai / mati → hapus dari pool
+    linkUpdated: (id, link) => store.setPipopayLink(id, link), // simpan link Pipopay baru saat di-refetch
+    qr: (id, dataUri, expire) => send("pay:qr", { id, dataUri, expire }), // mirror QR MoMo ke app
+    payStatus: (id, status, message) => send("pay:status", { id, status, message }),
+    paid: (id) => store.markPaid(id), // sukses → tandai Pro, hapus link, pindah folder
+    removeAccount: (id) => store.deleteAccounts([id]), // Pro sudah tak gratis → hapus akun
   };
+}
+
+// Bungkus batch: progress indeterminate di taskbar saat mulai, bersihkan + flash saat selesai.
+async function runWithTaskbar(evt, runner, group = "create") {
+  const my = ++runTokens[group]; // token khusus run ini di grup-nya
+  win?.setProgressBar(2, { mode: "indeterminate" });
+  try {
+    return await runner(makeHooks(evt, group), () => my !== runTokens[group]); // shouldStop: true begitu grup di-stop/start ulang
+  } finally {
+    win?.setProgressBar(-1);
+    if (win && !win.isFocused()) win.flashFrame(true); // kedipkan icon taskbar saat kelar
+  }
 }
 function withProxies(cfg) {
   // proxy eksplisit dari renderer menang; kalau tidak ada, ambil dari pool
@@ -296,9 +343,78 @@ function withProxies(cfg) {
   return cfg;
 }
 
-ipcMain.handle("bot:start", (evt, cfg) => { stopFlag = false; return runBatch(withProxies(cfg), makeHooks(evt), () => stopFlag); });
-ipcMain.on("bot:stop", () => (stopFlag = true));
-ipcMain.handle("outlook:start", (evt, cfg) => { stopFlag = false; return runOutlookBatch(withProxies(cfg), makeHooks(evt), () => stopFlag); });
+ipcMain.handle("bot:start", (evt, cfg) => runWithTaskbar(evt, async (hooks, shouldStop) => {
+  cfg = withProxies({ ...cfg, group: "create" });
+  // VN: cek proxy hidup/mati dulu, lalu jalan 1 akun per proxy hidup (sampai habis)
+  if (cfg.region === "vn" && cfg.proxies?.length) {
+    hooks.log(`Checking ${cfg.proxies.length} proxies…`);
+    const { alive, dead } = await checkProxies(cfg.proxies);
+    for (const d of dead) store.deleteProxyByHostPort(d.host, d.port); // auto-hapus yg mati (sekali pakai)
+    if (dead.length) hooks.log(`${dead.length} proxy mati — dihapus`, "warn");
+    if (!alive.length) { hooks.log("Semua proxy mati — dibatalkan", "error"); return { ok: 0, total: 0 }; }
+    cfg.proxies = alive;
+    hooks.log(`${alive.length} proxy hidup — jalan nonstop sampai proxy habis`, "success");
+  }
+  return runBatch(cfg, hooks, shouldStop);
+}));
+// Stop per-grup: "create" atau "payment" — hanya kadaluarsakan run + tutup browser grup itu, grup lain tetap jalan.
+ipcMain.on("bot:stop", (_e, group = "create") => { runTokens[group] = (runTokens[group] || 0) + 1; stopAll(group); win?.setProgressBar(-1); });
+
+// Penyedia proxy VN utk Auto Payment: pakai pool yg hidup dulu; hanya beli 1 dari CLIProxy kalau habis.
+function makeVnAcquirer(hooks) {
+  let cache = null, refilling = null;
+  async function refill() {
+    const pool = store.randomProxies(100, "socks5");
+    const { alive, dead } = await checkProxies(pool);
+    for (const d of dead) store.deleteProxyByHostPort(d.host, d.port);
+    if (dead.length) hooks.log(`${dead.length} proxy mati dihapus`, "warn");
+    cache = alive;
+  }
+  return async function acquire() {
+    if (!cache) { if (!refilling) refilling = refill(); await refilling; }
+    if (cache.length) return cache.shift();
+    // pool habis → beli 1 dari CLIProxy
+    const creds = store.getSettings().integrations?.cliproxy || {};
+    if (!creds.key || !creds.token) { hooks.log("CLIProxy belum diatur — tak bisa beli proxy VN", "error"); return null; }
+    hooks.log("Proxy VN habis — beli 1 dari CLIProxy", "warn");
+    try {
+      const bought = await cliproxyFetch(creds, 1, "VN");
+      for (const p of bought) store.saveProxy({ ...p, ok: 1 });
+      const { alive } = await checkProxies(bought);
+      cache = alive;
+      return cache.length ? cache.shift() : null;
+    } catch (e) { hooks.log("Beli proxy gagal: " + e.message, "error"); return null; }
+  };
+}
+
+// Proxy pembayaran sesuai pilihan user: proxyless / dataimpulse / cliproxy.
+function makePayAcquirer(hooks, mode) {
+  if (mode === "proxyless") return async () => null;
+  if (mode === "dataimpulse") {
+    const url = (store.getSettings().integrations?.dataimpulse?.proxy || "").trim();
+    const m = url.match(/^https?:\/\/([^:@]+):([^@]+)@([^:@]+):(\d+)$/);
+    if (!m) { hooks.log("DataImpulse belum diatur / format salah", "error"); return async () => null; }
+    const [, user, pass, host, port] = m;
+    const proxy = { scheme: "http", host, port: Number(port), username: `${user}__cr.vn`, password: pass }; // gateway VN rotating
+    return async () => proxy;
+  }
+  return makeVnAcquirer(hooks); // cliproxy: pool dulu, beli 1 kalau habis
+}
+
+ipcMain.handle("pay:start", (evt, cfg) => runWithTaskbar(evt, (hooks, shouldStop) => {
+  const accounts = (cfg.ids || [])
+    .map((id) => { const r = store.getPayInfo(id); return r && { id: r.id, email: r.email, cookiesJson: r.cookies_json, link: r.pipopay_link }; })
+    .filter(Boolean);
+  if (!accounts.length) { hooks.log("Tidak ada akun valid", "warn"); return { ok: 0, total: 0 }; }
+  hooks.log(`Proxy pembayaran: ${cfg.proxyMode || "dataimpulse"} · refetch link: CLIProxy`);
+  return runPayment({
+    accounts, headless: cfg.headless, group: "payment",
+    acquirePayProxy: makePayAcquirer(hooks, cfg.proxyMode || "dataimpulse"),
+    acquireCliProxy: makeVnAcquirer(hooks), // refetch link expired WAJIB CLIProxy
+  }, hooks, shouldStop);
+}, "payment"));
+ipcMain.handle("outlook:start", (evt, cfg) => runWithTaskbar(evt, (hooks, shouldStop) => runOutlookBatch(withProxies({ ...cfg, group: "create" }), hooks, shouldStop)));
+ipcMain.handle("canva:start", (evt, cfg) => runWithTaskbar(evt, (hooks, shouldStop) => runBatch(withProxies({ ...cfg, kind: "canva", group: "create" }), hooks, shouldStop)));
 
 ipcMain.handle("bot:restore", async (evt, id) => {
   const row = store.getCookies(id);
@@ -310,6 +426,26 @@ ipcMain.handle("bot:restore", async (evt, id) => {
   } catch (e) {
     log(`Restore gagal: ${e.message}`, "warn");
     return { ok: false };
+  }
+});
+
+ipcMain.handle("link:refetch", async (evt, id) => {
+  const row = store.getCookies(id);
+  const log = (line, level = "info") => evt.sender.send("bot:log", { line, level, tag: `#${id}` });
+  if (!row?.cookies_json) return log(`No saved session for id ${id}`, "warn"), { ok: false, error: "Akun tidak punya sesi" };
+  const proxy = store.randomProxies(1, "socks5")[0];
+  if (!proxy) return log("No SOCKS5 proxy available", "warn"), { ok: false, error: "Belum ada proxy SOCKS5 Vietnam (isi di halaman Proxy)" };
+  try {
+    const link = await refetchLink(row.cookies_json, proxy, log, true);
+    if (!link) return { ok: false, error: "Link tidak didapat" };
+    store.setPipopayLink(id, link);
+    log(`Pipopay link updated: ${link}`, "success");
+    return { ok: true, link };
+  } catch (e) {
+    if (e.name === "AlreadyPro") { store.markPaid(id); log("Akun sudah Pro — ditandai", "success"); return { ok: true, alreadyPro: true }; }
+    if (e.name === "NoFreeTrial") { store.deleteAccounts([id]); log(`Pro tidak gratis (${e.price}) — dihapus`, "warn"); return { ok: false, error: "Pro tidak gratis — dihapus" }; }
+    log(`Refetch gagal: ${e.message}`, "error");
+    return { ok: false, error: e.message };
   }
 });
 

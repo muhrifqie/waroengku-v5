@@ -48,6 +48,11 @@ class Litensi {
     const d = await this._post("mail/order", { zone, site });
     return { id: d.order_id, email: d.email || d.mail || d.address };
   }
+  // Pesan ulang email yang sama → order_id baru untuk menangkap OTP berikutnya (mis. kode reset).
+  async reorder(site, email) {
+    const d = await this._post("mail/reorder", { site, email });
+    return { id: d.order_id, email: d.email || email };
+  }
   async waitOtp(id, timeout = 180) {
     const deadline = Date.now() + timeout * 1000;
     while (Date.now() < deadline) {
@@ -287,9 +292,21 @@ class GeneratorEmail {
 
 const REGISTRY = { litensi: Litensi, herosms: HeroSMS, smsvirtual: SmsVirtual, smsbower: SmsBower, tmail: Tmail, generator: GeneratorEmail };
 
+export const RANDOM_ZONE = "Random Domain"; // sentinel: pilih acak dari semua domain tersedia
 export function createOtp(providerId, creds) {
   const C = REGISTRY[providerId] || Litensi;
-  return new C(creds);
+  const p = new C(creds);
+  // "Random Domain": tiap order pilih domain acak dari daftar tersedia (cache daftar biar tak fetch berulang)
+  const rawOrder = p.orderEmail.bind(p);
+  let pool = null;
+  p.orderEmail = async (site, zone) => {
+    if (zone === RANDOM_ZONE) {
+      if (!pool) pool = (await p.domains(site)).map((d) => d.zone).filter(Boolean);
+      zone = pool.length ? pool[Math.floor(Math.random() * pool.length)] : undefined;
+    }
+    return rawOrder(site, zone);
+  };
+  return p;
 }
 export async function providerBalance(providerId, creds) {
   try { return await createOtp(providerId, creds).balance(); }

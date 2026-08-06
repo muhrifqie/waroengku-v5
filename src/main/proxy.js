@@ -68,6 +68,21 @@ export async function detectProxy(line) {
   return { raw: line, ok: false, scheme: p.scheme || null, host: p.host, port: p.port, error: "Tidak merespon / mati" };
 }
 
+// Cek hidup/mati sekumpulan objek proxy ({scheme,host,port,username,password}) → { alive, dead }.
+export async function checkProxies(list, concurrency = 8) {
+  const q = list.map((p, i) => [i, p]);
+  const alive = [], dead = [];
+  async function worker() {
+    while (q.length) {
+      const [, p] = q.shift();
+      const r = await testVia(p.scheme || "socks5", { host: p.host, port: p.port, user: p.username, pass: p.password });
+      (r.ok ? alive : dead).push(p);
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, worker));
+  return { alive, dead };
+}
+
 export async function detectMany(lines, concurrency = 8) {
   const q = lines.map((l, i) => [i, l]).filter(([, l]) => (l || "").trim());
   const out = [];

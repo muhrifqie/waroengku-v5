@@ -80,7 +80,7 @@ export default function Outlook({ setPage }) {
         <div className="pb-1.5">
           {!ready && !running && <span className="mr-3 inline-flex items-center gap-1.5 text-[12px] text-warning"><AlertTriangle size={14} /> AdsPower belum siap</span>}
           {running
-            ? <Button variant="primary" onClick={stopBot}><Square size={15} /> Stop</Button>
+            ? <Button variant="primary" onClick={() => stopBot()}><Square size={15} /> Stop</Button>
             : <Button variant="primary" onClick={() => startOutlook(count, useProxy)} disabled={!ready}><Play size={15} /> Mulai Buat</Button>}
         </div>
       </div>

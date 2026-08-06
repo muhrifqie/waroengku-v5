@@ -30,6 +30,7 @@ export async function initDb() {
   const cols = new Set([...db.exec("PRAGMA table_info(accounts)")[0].values].map((v) => v[1]));
   if (!cols.has("product")) db.run("ALTER TABLE accounts ADD COLUMN product TEXT DEFAULT 'capcut'");
   if (!cols.has("pipopay_link")) db.run("ALTER TABLE accounts ADD COLUMN pipopay_link TEXT"); // link checkout VN
+  if (!cols.has("paid")) db.run("ALTER TABLE accounts ADD COLUMN paid INTEGER DEFAULT 0"); // sudah bayar (Pro)
 
   db.run(`CREATE TABLE IF NOT EXISTS proxies (
     id INTEGER PRIMARY KEY AUTOINCREMENT, raw TEXT, scheme TEXT, host TEXT, port INTEGER,
@@ -41,6 +42,9 @@ export async function initDb() {
     for (const [key, name, icon] of [["capcut", "CapCut", "video"], ["outlook", "Outlook", "mail"], ["hma", "HMA", "shield"], ["zoom", "Zoom", "monitor"]])
       db.run("INSERT INTO folders (key, name, icon) VALUES (?,?,?)", [key, name, icon]);
   }
+  db.run("INSERT OR IGNORE INTO folders (key, name, icon) VALUES ('capcut-vn','CapCut VN','video')"); // folder khusus VN
+  db.run("INSERT OR IGNORE INTO folders (key, name, icon) VALUES ('capcut-vn-pro','CapCut VN Pro','star')"); // akun VN yg sudah bayar
+  db.run("INSERT OR IGNORE INTO folders (key, name, icon) VALUES ('canva','Canva','palette')");
   dirty = true;
   flushDb();
 }
@@ -95,7 +99,7 @@ function all(sql, params = []) {
 export function listAccounts() {
   // JANGAN ambil cookies_json (bisa MB per baris) → cukup flag has_session biar ringan
   return all(
-    `SELECT id, COALESCE(product,'capcut') AS product, email, password, prices, pipopay_link,
+    `SELECT id, COALESCE(product,'capcut') AS product, email, password, prices, pipopay_link, paid,
        CASE WHEN cookies_json IS NOT NULL AND cookies_json != '' THEN 1 ELSE 0 END AS has_session,
        created_at
      FROM accounts ORDER BY id DESC`
@@ -123,8 +127,23 @@ export function deleteAccounts(ids) {
   persist();
 }
 
+export function setPipopayLink(id, link) {
+  db.run("UPDATE accounts SET pipopay_link=? WHERE id=?", [link, id]);
+  persist();
+}
+
 export function getCookies(id) {
   const r = all("SELECT email, cookies_json FROM accounts WHERE id=?", [id]);
+  return r[0] || null;
+}
+// Sukses bayar: tandai Pro, hapus link (sekali pakai), pindah ke folder terpisah.
+export function markPaid(id) {
+  db.run("UPDATE accounts SET paid=1, pipopay_link=NULL, product='capcut-vn-pro' WHERE id=?", [id]);
+  persist();
+}
+
+export function getPayInfo(id) {
+  const r = all("SELECT id, email, cookies_json, pipopay_link FROM accounts WHERE id=?", [id]);
   return r[0] || null;
 }
 
@@ -232,6 +251,10 @@ export function saveProxy(p) {
 }
 export function deleteProxies(ids) {
   db.run(`DELETE FROM proxies WHERE id IN (${ids.map(() => "?").join(",")})`, ids);
+  persist();
+}
+export function deleteProxyByHostPort(host, port) {
+  db.run("DELETE FROM proxies WHERE host=? AND port=?", [host, Number(port)]);
   persist();
 }
 

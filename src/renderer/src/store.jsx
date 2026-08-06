@@ -1,8 +1,8 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { defaultIntegrations } from "./providers.js";
 
 const PROFILE_DEFAULTS = {
-  site: "capcut.com", zone: "outlook.com",
+  site: "capcut.com", zone: "Random Domain",
   password: "masuk123", name: " X",
   year: "2000", month: "6", day: "15",
   count: "1", concurrent: "1", headless: false, useProxy: false,
@@ -31,8 +31,13 @@ export function AppProvider({ children }) {
   });
   const [rows, setRows] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [running, setRunning] = useState(false);
+  const [running, setRunning] = useState(false); // create (CapCut/Canva/Outlook)
+  const [paying, setPaying] = useState(false);    // auto payment — independen dari create
   const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [payProgress, setPayProgress] = useState({ done: 0, total: 0 });
+  const [payQr, setPayQr] = useState({}); // {id: {dataUri, expire, status, message}}
+  const clearPayQr = () => setPayQr({});
+  const dismissPayQr = (id) => setPayQr((s) => { const n = { ...s }; delete n[id]; return n; }); // tutup satu kartu QR
   const [termSignal, setTermSignal] = useState(0);
   const focusTerminal = () => setTermSignal((s) => s + 1);
   const [domains, setDomains] = useState([]);
@@ -42,11 +47,25 @@ export function AppProvider({ children }) {
   const [sys, setSys] = useState(null);
   const [folders, setFolders] = useState([]);
 
+  // Batch log: banyak worker bisa membanjiri log → kumpulkan lalu render 1x tiap ~120ms biar UI tak nge-lag.
+  const logBuf = useRef([]);
+  const logTimer = useRef(null);
   const pushLog = (p) => {
     if (p.level === "captcha") beep();
-    setLogs((l) => [...l.slice(-600), { ...p, t: new Date().toLocaleTimeString("en-GB", { hour12: false }) }]);
+    logBuf.current.push({ ...p, t: new Date().toLocaleTimeString("en-GB", { hour12: false }) });
+    if (!logTimer.current) logTimer.current = setTimeout(() => {
+      logTimer.current = null;
+      const buf = logBuf.current; logBuf.current = [];
+      setLogs((l) => [...l, ...buf].slice(-600));
+    }, 120);
   };
   const lit = integrations.litensi;
+
+  // Selesaikan run: matikan status grup terkait + kabari lewat notifikasi desktop.
+  function finishRun(res, label, group = "create") {
+    (group === "payment" ? setPaying : setRunning)(false);
+    window.api.notify?.(`${label} selesai`, `${res?.ok ?? 0}/${res?.total ?? 0} berhasil`);
+  }
 
   const setField = (k, v) => setCfg((c) => ({ ...c, [k]: v }));
   const setIntegration = (id, patch) => {
@@ -74,17 +93,27 @@ export function AppProvider({ children }) {
     })();
     const offs = [
       window.api.onBotLog(pushLog),
-      window.api.onBotProgress((p) => setProgress(p)),
-      window.api.onBotSaved(() => refresh()),
+      window.api.onBotProgress((p) => (p.group === "payment" ? setPayProgress : setProgress)(p)),
+      window.api.onBotSaved(() => scheduleRefresh()),
+      window.api.onPayQr((p) => setPayQr((s) => ({ ...s, [p.id]: { ...s[p.id], dataUri: p.dataUri, expire: p.expire, status: "qr" } }))),
+      window.api.onPayStatus((p) => { setPayQr((s) => ({ ...s, [p.id]: { ...s[p.id], status: p.status, message: p.message } })); if (p.status !== "qr") scheduleRefresh(); }),
     ];
     return () => offs.forEach((off) => off());
   }, []);
 
   useEffect(() => {
-    if (loaded) window.api.setSettings({ profile: cfg, integrations });
+    if (!loaded) return;
+    const t = setTimeout(() => window.api.setSettings({ profile: cfg, integrations }), 400); // debounce tulis ke disk saat ketik
+    return () => clearTimeout(t);
   }, [cfg, integrations, loaded]);
 
   const refresh = async () => setRows(await window.api.listAccounts());
+  // refresh yg di-debounce untuk event beruntun (akun tersimpan / status bayar) → hindari banjir query DB.
+  const refreshTimer = useRef(null);
+  const scheduleRefresh = () => {
+    if (refreshTimer.current) return;
+    refreshTimer.current = setTimeout(() => { refreshTimer.current = null; refresh(); }, 400);
+  };
 
   const otpArgs = () => ({
     provider: cfg.otpProvider,
@@ -93,33 +122,65 @@ export function AppProvider({ children }) {
   });
 
   async function startBot(region = "id", proxies = null) {
+    const vn = region === "vn";
+    // VN: 1 proxy = 1 akun, jalan sampai proxy habis; paralel = jumlah proxy (maks 20).
+    const count = vn ? (proxies?.length || 0) : (Number(cfg.count) || 1);
+    // VN: paralel manual (cfg.concurrent), dibatasi jumlah proxy biar tak ada worker nganggur
+    const concurrent = vn ? Math.min(Math.max(1, Number(cfg.concurrent) || 1), proxies?.length || 1) : cfg.concurrent;
     setRunning(true);
     focusTerminal();
-    setProgress({ done: 0, total: Number(cfg.count) || 1 });
-    await window.api.startBot({
-      product: cfg.folder || "capcut",
+    setProgress({ done: 0, total: count });
+    const res = await window.api.startBot({
+      product: vn ? "capcut-vn" : (cfg.folder || "capcut"),
       provider: cfg.otpProvider,
       creds: { ...(integrations[cfg.otpProvider] || {}) },
       site: cfg.site.trim(), zone: cfg.zone.trim(),
       password: cfg.password, name: cfg.name,
       birthday: { year: cfg.year, month: cfg.month, day: cfg.day },
-      count: cfg.count, concurrent: cfg.concurrent, headless: cfg.headless,
-      region, useProxy: region === "vn" ? true : cfg.useProxy, // VN wajib lewat proxy SOCKS5
+      count, concurrent, headless: cfg.headless,
+      region, useProxy: vn ? true : cfg.useProxy, // VN wajib lewat proxy SOCKS5
       proxies: proxies?.length ? proxies : undefined, // daftar proxy eksplisit (mis. VN tervalidasi)
     });
-    setRunning(false);
+    finishRun(res, vn ? "CapCut VN" : "CapCut ID");
   }
-  const stopBot = () => window.api.stopBot();
+  // Stop per-grup: "create" (default) atau "payment" — langsung nonaktifkan UI grup itu, backend tutup paksa browsernya.
+  const stopBot = (group = "create") => { window.api.stopBot(group); (group === "payment" ? setPaying : setRunning)(false); };
+
+  async function startPayment(ids, headless, proxyMode) {
+    setPaying(true); // grup payment — tak menyentuh status create
+    focusTerminal();
+    setPayProgress({ done: 0, total: ids.length });
+    const res = await window.api.startPayment({ ids, headless, proxyMode });
+    finishRun(res, "Auto Payment", "payment");
+    refresh();
+  }
+
+  async function startCanva(count, useProxy) {
+    const n = Number(count) || 1;
+    const c = Math.min(n, Math.max(1, Number(cfg.concurrent) || 1));
+    setRunning(true);
+    focusTerminal();
+    setProgress({ done: 0, total: n });
+    const res = await window.api.startCanva({
+      product: "canva",
+      provider: cfg.otpProvider,
+      creds: { ...(integrations[cfg.otpProvider] || {}) },
+      site: "canva.com", zone: (cfg.zone || "").trim(),
+      password: cfg.password,
+      count: n, concurrent: c, headless: cfg.headless, useProxy: !!useProxy,
+    });
+    finishRun(res, "Canva");
+  }
 
   async function startOutlook(count, useProxy) {
     setRunning(true);
     focusTerminal();
     setProgress({ done: 0, total: Number(count) || 1 });
-    await window.api.startOutlook({
+    const res = await window.api.startOutlook({
       creds: { ...(integrations.adspower || {}) },
       count, folder: "outlook", deleteProfile: false, useProxy: !!useProxy,
     });
-    setRunning(false);
+    finishRun(res, "Outlook");
   }
   const compactDb = () => window.api.compactDb();
   const exportDb = () => window.api.exportDb();
@@ -152,6 +213,30 @@ export function AppProvider({ children }) {
     window.api.providerBalance({ provider: id, creds: { ...(integrations[id] || {}) } });
   const checkAdspower = (id) =>
     window.api.adspowerStatus({ creds: { ...(integrations[id] || {}) } });
+  const checkCliproxy = (id) => window.api.cliproxyInfo({ ...(integrations[id] || {}) });
+  const fetchCliproxy = (num) => window.api.cliproxyFetch({ creds: { ...(integrations.cliproxy || {}) }, num, country: "VN" });
+
+  // DataImpulse: gateway tunggal, negara dipilih via suffix username __cr.<cc>.
+  // Buat N sesi (username sama, rotating gateway → tiap koneksi IP beda) untuk paralel.
+  function dataimpulseProxies(count = 1, country = "vn") {
+    const url = (integrations.dataimpulse?.proxy || "").trim();
+    const m = url.match(/^https?:\/\/([^:@]+):([^@]+)@([^:@]+):(\d+)$/);
+    if (!m) return { ok: false, error: "Format harus http://user:pass@gw.dataimpulse.com:823" };
+    const [, user, pass, host, port] = m;
+    const username = `${user}__cr.${country}`;
+    const proxies = Array.from({ length: Math.max(1, count) }, (_, i) => ({
+      scheme: "http", host, port: Number(port), username, password: pass,
+      raw: `http://${username}:${pass}@${host}:${port}`, country: country.toUpperCase(), ip: null, sid: i + 1,
+    }));
+    return { ok: true, proxies };
+  }
+  async function checkDataimpulse() {
+    const gen = dataimpulseProxies(1, "vn");
+    if (!gen.ok) return gen;
+    const { results } = await window.api.detectProxies([gen.proxies[0].raw]);
+    const r = results?.[0];
+    return r?.ok ? { ok: true, info: `VN OK · exit ${r.ip} (${r.country})` } : { ok: false, error: "Proxy tidak merespon" };
+  }
   const checkDomain = (domain) =>
     window.api.checkDomain({ provider: cfg.otpProvider, creds: { ...(integrations[cfg.otpProvider] || {}) }, domain });
   async function reloadIp() {
@@ -169,6 +254,12 @@ export function AppProvider({ children }) {
   async function del(ids) {
     setRows(await window.api.deleteAccounts(ids));
   }
+  async function refetchLink(id) {
+    focusTerminal();
+    const r = await window.api.refetchLink(id);
+    if (r?.ok) refresh();
+    return r;
+  }
   async function importLegacy() {
     focusTerminal();
     const r = await window.api.importLegacy();
@@ -180,9 +271,9 @@ export function AppProvider({ children }) {
   const value = {
     cfg, setField, integrations, setIntegration,
     rows, refresh, logs, clearLogs: () => setLogs([]),
-    running, progress, termSignal, focusTerminal, domains, browserReady, litensiStatus, sys, reloadIp,
+    running, paying, progress, payProgress, payQr, clearPayQr, dismissPayQr, termSignal, focusTerminal, domains, browserReady, litensiStatus, sys, reloadIp,
     folders, createFolder, updateFolder, deleteFolder,
-    startBot, startOutlook, stopBot, compactDb, exportDb, importDb, loadDomains, validate, captchaBalance, checkProvider, checkAdspower, checkDomain, restore, del, importLegacy,
+    startBot, startOutlook, startCanva, startPayment, stopBot, compactDb, exportDb, importDb, loadDomains, validate, captchaBalance, checkProvider, checkAdspower, checkCliproxy, fetchCliproxy, dataimpulseProxies, checkDataimpulse, checkDomain, restore, refetchLink, del, importLegacy,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
